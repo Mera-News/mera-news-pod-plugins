@@ -1,0 +1,25 @@
+{
+  "name": "mera-news-pod-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plugins for mera-news-pod, one package each.",
+  "license": "AGPL-3.0-only",
+  "author": "Mera Labs B.V.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "npm run build --workspaces --if-present",
+    "test": "tsx --test \"test/**/*.test.ts\" \"packages/*/test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#e318ceaebf2a0092eb2c390a8e95648ff9394482",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3"
+  }
+}

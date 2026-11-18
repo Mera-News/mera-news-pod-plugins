@@ -1,0 +1,73 @@
+# While mera-news-pod, mera-news-client and mera-news-data-server are private, CI reads them with
+# read-only deploy keys kept as repository secrets, one per repository: POD_DEPLOY_KEY and
+# CLIENT_DEPLOY_KEY for the pod package npm installs (the pod installs the client), and
+# DATA_SERVER_DEPLOY_KEY for the data server's GraphQL schema the tests serve. This repo itself
+# is read with the default token, and checkout persists no credentials.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  # The data server commit whose schema the fake data server in the tests serves.
+  DATA_SERVER_REV: bfd36afc6f2b9f704dcd8f105f9b358a89919332
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22.13.0', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        env:
+          POD_DEPLOY_KEY: ${{ secrets.POD_DEPLOY_KEY }}
+          CLIENT_DEPLOY_KEY: ${{ secrets.CLIENT_DEPLOY_KEY }}
+        run: >
+          bash .github/scripts/with-deploy-keys.sh
+          mera-news-pod=POD_DEPLOY_KEY mera-news-client=CLIENT_DEPLOY_KEY -- npm ci
+      - name: Fetch the data server schema at the pinned commit
+        env:
+          DATA_SERVER_DEPLOY_KEY: ${{ secrets.DATA_SERVER_DEPLOY_KEY }}
+        run: |
+          out="$RUNNER_TEMP/data-server"
+          git init -q "$out"
+          bash .github/scripts/with-deploy-keys.sh mera-news-data-server=DATA_SERVER_DEPLOY_KEY -- \
+            git -C "$out" fetch -q --depth 1 https://github.com/Mera-News/mera-news-data-server "$DATA_SERVER_REV"
+          git -C "$out" show FETCH_HEAD:apps/mera-server-news-api/src/schema.gql > "$RUNNER_TEMP/data-server-schema.gql"
+          echo "MERA_DATA_SERVER_SCHEMA=$RUNNER_TEMP/data-server-schema.gql" >> "$GITHUB_ENV"
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install
+        env:
+          POD_DEPLOY_KEY: ${{ secrets.POD_DEPLOY_KEY }}
+          CLIENT_DEPLOY_KEY: ${{ secrets.CLIENT_DEPLOY_KEY }}
+        run: >
+          bash .github/scripts/with-deploy-keys.sh
+          mera-news-pod=POD_DEPLOY_KEY mera-news-client=CLIENT_DEPLOY_KEY -- npm ci
+      # Each plugin's own runtime dependencies. The pod is a development dependency here: it runs
+      # the plugins and is checked in its own repository.
+      - name: Production dependency licenses
+        run: >
+          npx --yes license-checker-rseidelsohn@4.4.2 --production --excludePrivatePackages
+          --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;Zlib;(MIT AND Zlib);CC0-1.0;BlueOak-1.0.0;AGPL-3.0-only"
