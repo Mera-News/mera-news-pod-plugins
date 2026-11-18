@@ -12,12 +12,13 @@
     "packages/*"
   ],
   "scripts": {
+    "build": "npm run build --workspaces",
     "typecheck": "tsc -p tsconfig.json",
     "test": "tsx --test \"test/**/*.test.ts\" \"packages/*/test/**/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#5cfc0287ec2f0499c1e351fe60f08f608e94b69b",
+    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#ceb13330bee6713c6df20de88b09f192267c883b",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   }

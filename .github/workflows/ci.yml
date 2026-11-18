@@ -45,6 +45,7 @@ jobs:
           git -C "$out" show FETCH_HEAD:apps/mera-server-news-api/src/schema.gql > "$RUNNER_TEMP/data-server-schema.gql"
           echo "MERA_DATA_SERVER_SCHEMA=$RUNNER_TEMP/data-server-schema.gql" >> "$GITHUB_ENV"
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test
 
   licenses:

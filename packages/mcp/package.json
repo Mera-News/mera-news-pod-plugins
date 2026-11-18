@@ -1,0 +1,26 @@
+{
+  "name": "mera-news-pod-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An MCP server for mera-news-pod: set up a profile and fetch news picks from an AI assistant.",
+  "license": "AGPL-3.0-only",
+  "author": "Mera Labs B.V.",
+  "main": "build/index.js",
+  "bin": {
+    "mera-news-pod-mcp": "build/bin/cli.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0"
+  }
+}

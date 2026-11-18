@@ -1,0 +1,110 @@
+import { createMcpHandler } from '@modelcontextprotocol/server';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { existsSync } from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import path from 'node:path';
+import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
+import { readToken, rotateToken } from './bin/token';
+import { hostAllowed, originAllowed, sameSecret } from './guard';
+import { buildServer } from './tools';
+
+export const podApi = 1 as const;
+export const name = 'mcp';
+
+interface Config {
+  host: string;
+  port: number;
+  publicHost?: string;
+  capabilityUrl: boolean;
+}
+
+function readConfig(raw: unknown): Config {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const port = c.port === undefined ? 8787 : c.port;
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error('The mcp plugin needs "port" to be a whole number from 0 to 65535.');
+  }
+  for (const key of ['host', 'publicHost'] as const) {
+    if (c[key] !== undefined && typeof c[key] !== 'string') throw new Error(`The mcp plugin needs "${key}" to be text.`);
+  }
+  return {
+    host: (c.host as string | undefined) ?? '127.0.0.1',
+    port,
+    publicHost: c.publicHost as string | undefined,
+    capabilityUrl: c.capabilityUrl === true,
+  };
+}
+
+export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): PodPlugin => {
+  const config = readConfig(ctx.config);
+  // The pod gives this plugin `<home>/data/plugins/mcp`, which is where the bridge and the bin look.
+  const tokenFile = path.join(ctx.dataDir, 'token');
+  const handler = createMcpHandler(() => buildServer(ctx), { legacy: 'stateless', onerror: () => ctx.log.error('The MCP handler failed.') });
+  const serve = toNodeHandler(handler, { onerror: () => ctx.log.error('A request could not be served.') });
+  let listening: http.Server | undefined;
+  let port = config.port;
+
+  const refuse = (res: http.ServerResponse, status: number) => void res.writeHead(status).end();
+
+  function onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!hostAllowed(req.headers.host, config.publicHost)) return refuse(res, 403);
+    if (!originAllowed(req.headers.origin, config.publicHost)) return refuse(res, 403);
+
+    const pathname = (req.url ?? '').split('?')[0];
+    const viaPath = config.capabilityUrl ? /^\/mcp\/([^/]+)$/.exec(pathname) : null; // the token is url-safe, so no decoding
+    if (pathname !== '/mcp' && !viaPath) return refuse(res, 404);
+
+    let expected: string;
+    try {
+      expected = readToken(tokenFile);
+      if (!expected) throw new Error('empty');
+    } catch {
+      ctx.log.warn('The token file cannot be used, so every request is refused.');
+      return refuse(res, 401);
+    }
+    const given = viaPath ? viaPath[1] : /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '';
+    if (!sameSecret(given, expected)) return refuse(res, 401);
+
+    req.url = '/mcp';
+    void serve(req, res);
+  }
+
+  return {
+    async start() {
+      if (!existsSync(tokenFile)) {
+        rotateToken(tokenFile);
+        ctx.log.info(`A token was created at ${tokenFile}. Read it from that file.`);
+      }
+      readToken(tokenFile); // fail at start, in plain words, if the file cannot be trusted
+      const server = http.createServer(onRequest);
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(config.port, config.host, resolve);
+      });
+      listening = server;
+      port = (server.address() as AddressInfo).port;
+    },
+    async stop() {
+      const server = listening;
+      listening = undefined;
+      if (!server) return;
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await handler.close();
+    },
+    describe() {
+      const url = `http://127.0.0.1:${port}/mcp`;
+      const home = path.resolve(ctx.dataDir, '..', '..', '..');
+      const lines = [
+        `MCP address: ${url}`,
+        `Header for an MCP client: Authorization: Bearer <the token in ${tokenFile}>`,
+      ];
+      if (config.capabilityUrl) {
+        const base = config.publicHost ? `https://${config.publicHost}` : `http://127.0.0.1:${port}`;
+        lines.push(`Address with the token in it, for a remote client: mera-news-pod-mcp url --base ${base} --home ${home}`);
+      }
+      return lines;
+    },
+  };
+};
