@@ -1,0 +1,18 @@
+{
+  "name": "mera-news-pod-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A plugin for mera-news-pod that a paired phone talks to: pairing, the pod's snapshot, commands, model and news.",
+  "license": "AGPL-3.0-only",
+  "author": "Mera Labs B.V.",
+  "main": "build/index.js",
+  "bin": {
+    "mera-news-pod-sync": "build/bin/cli.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
