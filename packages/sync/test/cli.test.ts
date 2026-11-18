@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -45,6 +45,16 @@ test('pair without --base prints the code and says the link needs the public add
   assert.equal(out.code, 0, out.stderr);
   assert.match(out.stdout, /[A-Z2-7]{10}/);
   assert.ok(!out.stdout.includes('meraapp://'));
+});
+
+test('pair issues no code while a device is paired and says how to revoke it', async () => {
+  const h = home();
+  const a = addDevice(dir(h), 'Phone A', 'token-a');
+  const out = await cli(['pair', '--home', h]);
+  assert.equal(out.code, 1);
+  assert.doesNotMatch(out.stdout, /[A-Z2-7]{10}/);
+  assert.ok(!existsSync(path.join(dir(h), 'pairing.json')));
+  assert.ok(out.stderr.includes('Phone A') && out.stderr.includes(`devices --revoke ${a.id}`), out.stderr);
 });
 
 test('devices lists paired devices without secrets and --revoke removes one', async () => {

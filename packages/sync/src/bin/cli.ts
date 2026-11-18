@@ -15,6 +15,14 @@ function main(args: string[]): number {
   const home = option(args, '--home') ?? process.env.MERA_POD_HOME ?? `${os.homedir()}/.mera-news-pod`;
   const dir = syncDir(home);
   if (args[0] === 'pair') {
+    const [paired] = listDevices(dir);
+    if (paired) {
+      process.stderr.write(
+        `A device is already paired: ${paired.name} (${paired.id}). A pod pairs with one device.\n` +
+          `To pair another, revoke it first: mera-news-pod-sync devices --revoke ${paired.id}\n`,
+      );
+      return 1;
+    }
     const code = createPairing(dir);
     const base = option(args, '--base');
     process.stdout.write(`Pairing code: ${code}\nIt works once and for 10 minutes.\n`);

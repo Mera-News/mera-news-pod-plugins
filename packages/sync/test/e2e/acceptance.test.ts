@@ -116,8 +116,7 @@ describe('a phone paired to a pod through the sync plugin', () => {
     const wrong = await request('POST', '/pair', { code: code.slice(0, 9) + (code[9] === 'A' ? 'B' : 'A'), deviceName: 'Phone' });
     assert.equal(wrong.status, 403);
     const paired = await post('/pair', { code, deviceName: 'Phone' });
-    assert.equal(paired.firstDevice, true);
-    assert.equal(paired.hasProfile, false);
+    assert.deepEqual(Object.keys(paired).sort(), ['deviceId', 'podName', 'token']);
     assert.equal(paired.podName, 'Test pod');
     token = paired.token;
     deviceId = paired.deviceId;
@@ -163,6 +162,13 @@ describe('a phone paired to a pod through the sync plugin', () => {
     assert.equal(sent[0].headers.cookie, undefined, 'the phone\'s cookie never reaches the news server');
     const refused = await request('POST', '/graphql', { operationName: 'GetUserPersona', query: 'query GetUserPersona { me { id } }' });
     assert.equal(JSON.parse(refused.text).errors[0].extensions.code, 'NOT_ALLOWED');
+  });
+
+  it('issues no second pairing code while the phone is paired', () => {
+    assert.throws(
+      () => execFileSync(process.execPath, [path.join(BUILT, 'bin', 'cli.js'), 'pair', '--home', home], { env: plainEnv(), encoding: 'utf8', stdio: 'pipe' }),
+      (e: { status?: number; stderr?: string }) => e.status === 1 && /already paired/.test(e.stderr ?? '') && new RegExp(`devices --revoke ${deviceId}`).test(e.stderr ?? ''),
+    );
   });
 
   it('refuses a phone on another version, naming the older side', async () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { run } from './helpers';
 
-const PATHS: [string, string][] = [['POST', '/pair'], ['POST', '/snapshot'], ['POST', '/commands'], ['POST', '/profile/replace'], ['POST', '/v1/chat/completions'], ['POST', '/graphql'], ['GET', '/status'], ['POST', '/devices/revoke']];
+const PATHS: [string, string][] = [['POST', '/pair'], ['POST', '/snapshot'], ['POST', '/commands'], ['POST', '/v1/chat/completions'], ['POST', '/graphql'], ['GET', '/status'], ['POST', '/devices/revoke']];
 
 test('a foreign Origin is refused on every route, even with a valid token', async () => {
   const r = await run();

@@ -121,13 +121,14 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       return sendJson(res, 403, { error: 'wrong_code' });
     }
     clearPairing(dir);
+    // One pod, one device: a paired device sees the whole profile, its chats and the reading.
+    // The code is checked first, so only someone holding a valid code learns a device is paired.
+    if (listDevices(dir).length > 0) return sendJson(res, 409, { error: 'already_paired' });
     const deviceName = typeof body.deviceName === 'string' && body.deviceName.trim() ? body.deviceName.trim().slice(0, 64) : 'Phone';
     const token = randomBytes(32).toString('base64url');
-    const firstDevice = listDevices(dir).length === 0;
     const device = addDevice(dir, deviceName, token);
-    const hasProfile = await services.profile.hasProfile();
     ctx.log.info('A device was paired.');
-    sendJson(res, 200, { deviceId: device.id, token, podName: config.podName, hasProfile, firstDevice });
+    sendJson(res, 200, { deviceId: device.id, token, podName: config.podName });
   }
 
   async function chat(res: http.ServerResponse, body: unknown) {
@@ -151,7 +152,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     }
   }
 
-  const routes: Record<string, { limit: number; aloneOnly?: boolean; run(res: http.ServerResponse, body: any, device: Device): Promise<void> | void }> = {
+  const routes: Record<string, { limit: number; run(res: http.ServerResponse, body: any, device: Device): Promise<void> | void }> = {
     'POST /snapshot': {
       limit: 2 * MB,
       run: async (res, b) => sendJson(res, 200, await services.display.snapshot({ hashes: b.hashes, peer: { schemaVersion: b.schemaVersion, registry: b.registry } })),
@@ -161,16 +162,6 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       run: async (res, b) => {
         if (!Array.isArray(b.commands)) throw new HttpError(400, 'bad_request');
         sendJson(res, 200, await services.commands.run({ schemaVersion: b.schemaVersion, registry: b.registry, hashes: b.hashes, commands: b.commands }));
-      },
-    },
-    'POST /profile/replace': {
-      limit: 8 * MB,
-      // Replacing the profile is offered only to a device paired while no other was. It must still be
-      // the only one: once a second device pairs, the profile is theirs too.
-      aloneOnly: true,
-      run: async (res, b) => {
-        await services.profile.replaceProfile({ schemaVersion: b.schemaVersion, tables: b.tables });
-        sendJson(res, 200, {});
       },
     },
     'POST /v1/chat/completions': { limit: 2 * MB, run: (res, b) => chat(res, b) },
@@ -216,7 +207,6 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
 
       const route = routes[key];
       if (!route) return refuse(res, 404);
-      if (route.aloneOnly && listDevices(dir).length !== 1) return sendJson(res, 403, { error: 'not_only_device' });
       await route.run(res, route.limit ? await readJson(req, route.limit) : {}, device);
     } catch (e) {
       if (res.headersSent) return void res.destroy();

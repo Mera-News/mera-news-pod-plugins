@@ -28,7 +28,6 @@ export const status = (over: Partial<PodStatus> = {}): PodStatus => ({
 export interface Calls {
   snapshot: { hashes?: Record<string, string>; peer?: { schemaVersion: number; registry: number } }[];
   commands: unknown[];
-  replace: unknown[];
   reading: unknown[];
   chat: { body: unknown; signal?: AbortSignal; extra: number }[];
   graphql: unknown[];
@@ -51,16 +50,14 @@ export class Mismatch extends Error {
   code = 'version_mismatch';
 }
 
-export function fakeServices(over: Partial<PodServices> = {}, profile = { has: false }): { services: PodServices; calls: Calls } {
-  const calls: Calls = { snapshot: [], commands: [], replace: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0 };
+export function fakeServices(over: Partial<PodServices> = {}): { services: PodServices; calls: Calls } {
+  const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0 };
   const services: PodServices = {
     profile: {
       get: async () => ({ facts: [] }),
       addFacts: async () => ({ added: [], already: [], refused: [] }),
       removeFacts: async () => ({ removed: [], notFound: [] }),
       editTopics: async () => ({ results: [] }),
-      hasProfile: async () => profile.has,
-      replaceProfile: async (p) => void calls.replace.push(p),
     },
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
     reading: {
@@ -114,17 +111,17 @@ export interface Running {
   /** Writes a pending pairing code and returns it. */
   newCode(): string;
   /** Pairs a device with a fresh code and returns the reply body. */
-  pair(deviceName?: string): Promise<{ deviceId: string; token: string; podName: string; hasProfile: boolean; firstDevice: boolean }>;
+  pair(deviceName?: string): Promise<{ deviceId: string; token: string; podName: string }>;
   raw(o: { path: string; method?: string; headers?: Record<string, string>; body?: string | Buffer }): Promise<Reply>;
   call(token: string, path: string, body?: unknown, method?: string): Promise<Reply>;
   stop(): Promise<void>;
 }
 
-export async function run(opts: { services?: PodServices; calls?: Calls; config?: object; profile?: { has: boolean } } = {}): Promise<Running> {
+export async function run(opts: { services?: PodServices; calls?: Calls; config?: object } = {}): Promise<Running> {
   const home = mkdtempSync(path.join(os.tmpdir(), 'sync-'));
   const dataDir = path.join(home, 'data', 'plugins', 'sync');
   mkdirSync(dataDir, { recursive: true });
-  const fake = opts.services ? { services: opts.services, calls: opts.calls ?? fakeServices().calls } : fakeServices({}, opts.profile);
+  const fake = opts.services ? { services: opts.services, calls: opts.calls ?? fakeServices().calls } : fakeServices();
   const logs: string[] = [];
   const log = (level: string) => (m: string, c?: unknown) => void logs.push(`${level} ${m} ${c ? JSON.stringify(c) : ''}`);
   const ctx: PluginContext = {

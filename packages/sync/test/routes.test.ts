@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { test } from 'node:test';
 import { listDevices, removeDevice } from '../src/store';
-import { fakeServices, Mismatch, REGISTRY, run, SCHEMA, status } from './helpers';
+import { fakeServices, REGISTRY, run, SCHEMA, status } from './helpers';
 
 const ROUTES: [string, string][] = [
   ['POST', '/snapshot'],
   ['POST', '/commands'],
-  ['POST', '/profile/replace'],
   ['POST', '/v1/chat/completions'],
   ['POST', '/graphql'],
   ['GET', '/status'],
@@ -20,9 +19,9 @@ const peer = { schemaVersion: SCHEMA, registry: REGISTRY };
 test('every route but /pair answers 401 with no body and no data without a valid token', async () => {
   const r = await run();
   try {
-    const good = await r.pair('A');
     const gone = await r.pair('B');
     assert.equal((await r.call(gone.token, '/devices/revoke')).status, 200);
+    const good = await r.pair('A');
     for (const [method, path] of ROUTES) {
       for (const authorization of [undefined, 'Bearer wrong', good.token, 'Bearer ', `Bearer ${gone.token}`]) {
         const res = await r.raw({ path, method, headers: authorization ? { authorization } : {}, body: method === 'GET' ? undefined : '{}' });
@@ -30,7 +29,7 @@ test('every route but /pair answers 401 with no body and no data without a valid
         assert.equal(res.body, '');
       }
     }
-    assert.deepEqual([r.calls.snapshot, r.calls.commands, r.calls.replace, r.calls.chat, r.calls.graphql].map((c) => c.length), [0, 0, 0, 0, 0]);
+    assert.deepEqual([r.calls.snapshot, r.calls.commands, r.calls.chat, r.calls.graphql].map((c) => c.length), [0, 0, 0, 0]);
   } finally {
     await r.stop();
   }
@@ -204,8 +203,7 @@ test('oversize bodies answer 413', async () => {
     const a = await r.pair('A');
     const big = (n: number) => JSON.stringify({ pad: 'x'.repeat(n) });
     assert.equal((await r.call(a.token, '/commands', JSON.parse(big(2 * 1024 * 1024 + 10)))).status, 413);
-    assert.equal((await r.call(a.token, '/profile/replace', JSON.parse(big(8 * 1024 * 1024 + 10)))).status, 413);
-    assert.equal(r.calls.replace.length, 0);
+    assert.equal(r.calls.commands.length, 0);
   } finally {
     await r.stop();
   }
@@ -226,12 +224,12 @@ test('a device revoked from the command line while the pod runs is refused at on
   const r = await run();
   try {
     const a = await r.pair('A');
-    const b = await r.pair('B');
     assert.equal((await r.call(a.token, '/status', undefined, 'GET')).status, 200);
     // What `mera-news-pod-sync devices --revoke` does, on the same files, while the plugin runs.
     assert.equal(removeDevice(r.dataDir, a.deviceId), true);
     assert.equal((await r.call(a.token, '/status', undefined, 'GET')).status, 401);
-    // Another device's request records when it was seen; that must not write A back.
+    // The next phone's request records when it was seen; that must not write A back.
+    const b = await r.pair('B');
     assert.equal((await r.call(b.token, '/status', undefined, 'GET')).status, 200);
     assert.deepEqual(listDevices(r.dataDir).map((d) => d.id), [b.deviceId]);
     assert.equal((await r.call(a.token, '/status', undefined, 'GET')).status, 401);
@@ -287,22 +285,6 @@ test('/reading pauses or resumes reading on the pod and answers the status', asy
     assert.equal((await r.call(a.token, '/reading', { paused: 'yes' })).status, 400);
     assert.equal((await r.call(a.token, '/reading', { everyMinutes: 5 })).status, 400, 'only the pause is set from a phone');
     assert.deepEqual(calls.reading, [{ paused: true }]);
-  } finally {
-    await r.stop();
-  }
-});
-
-test('a profile replace on another schema version answers 409 and names the older side', async () => {
-  const { services, calls } = fakeServices({}, { has: true });
-  services.profile.replaceProfile = async () => {
-    throw new Mismatch('The phone is older than the pod. Both sides must run the same version to share data.');
-  };
-  const r = await run({ services, calls });
-  try {
-    const a = await r.pair('A');
-    const reply = await r.call(a.token, '/profile/replace', { schemaVersion: SCHEMA - 1, tables: {} });
-    assert.equal(reply.status, 409);
-    assert.deepEqual(JSON.parse(reply.body), { error: 'version_mismatch', message: 'The phone is older than the pod. Both sides must run the same version to share data.' });
   } finally {
     await r.stop();
   }
