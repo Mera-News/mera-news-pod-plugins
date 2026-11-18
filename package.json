@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#bbdbba46c75898d9960801135a3e7ee1ce8d67af",
+    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#746ba30dfca11f9172d709f2d235ec781b7ed146",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   }
