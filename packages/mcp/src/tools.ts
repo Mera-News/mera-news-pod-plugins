@@ -80,7 +80,7 @@ export function buildServer(ctx: PluginContext): McpServer {
         if (saysCode(e)) return fail(e.code, e.message, e.next);
         ctx.log.error(`${name} failed`);
         const message = e instanceof Error ? e.message : 'The pod could not do that.';
-        return fail('failed', message, 'try again, and if it keeps failing ask the person to run: mera-news-pod check');
+        return fail('failed', message, 'try again, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
       }
     });
   }

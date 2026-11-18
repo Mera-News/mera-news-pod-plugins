@@ -86,6 +86,20 @@ test('a present Origin that is not allowed is refused', async () => {
   }
 });
 
+test('a remote connector call with no Origin is served on both routes, and a foreign Origin is refused on both', async () => {
+  const r = await run({ config: { capabilityUrl: true, publicHost: 'pod.example.com' } });
+  try {
+    const remote = { host: 'pod.example.com' };
+    assert.equal((await r.raw({ path: `/mcp/${TOKEN}`, headers: remote, body: initialize })).status, 200);
+    assert.equal((await r.raw({ path: '/mcp', headers: { ...remote, ...bearer() }, body: initialize })).status, 200);
+    assert.equal((await r.raw({ path: `/mcp/${TOKEN}`, headers: { ...remote, origin: 'https://pod.example.com' }, body: initialize })).status, 200);
+    assert.equal((await r.raw({ path: `/mcp/${TOKEN}`, headers: { ...remote, origin: 'https://chatgpt.com' }, body: initialize })).status, 403);
+    assert.equal((await r.raw({ path: '/mcp', headers: { ...remote, ...bearer(), origin: 'https://claude.ai' }, body: initialize })).status, 403);
+  } finally {
+    await r.stop();
+  }
+});
+
 test('the capability path is off by default and works when enabled', async () => {
   const off = await run();
   try {

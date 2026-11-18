@@ -131,7 +131,8 @@ test('every error carries code, message and next, and a bad argument never shows
     const plain = await c.callTool({ name: 'get_status', arguments: {} });
     assert.equal(plain.isError, true);
     assert.equal(json(plain).code, 'failed');
-    assert.ok(json(plain).next.length > 0);
+    // A command a checkout install has, as the docs give it.
+    assert.equal(json(plain).next, 'try again, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
   } finally {
     await r.stop();
   }
