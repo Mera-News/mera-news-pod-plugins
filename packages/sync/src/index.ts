@@ -179,6 +179,14 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       limit: 0,
       run: async (res) => sendJson(res, 200, { ...(await services.reading.status()), podName: config.podName, ...services.display.versions() }),
     },
+    // The paired page's "Read the news" switch: only the pause, never the interval, which is the pod's own setting.
+    'POST /reading': {
+      limit: 1024,
+      run: async (res, b) => {
+        if (typeof b.paused !== 'boolean' || Object.keys(b).length !== 1) throw new HttpError(400, 'bad_request');
+        sendJson(res, 200, await services.reading.set({ paused: b.paused }));
+      },
+    },
     'POST /devices/revoke': {
       limit: 1024,
       run: (res, _b, device) => {

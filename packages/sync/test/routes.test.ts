@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { test } from 'node:test';
 import { listDevices, removeDevice } from '../src/store';
-import { fakeServices, REGISTRY, run, SCHEMA, status } from './helpers';
+import { fakeServices, Mismatch, REGISTRY, run, SCHEMA, status } from './helpers';
 
 const ROUTES: [string, string][] = [
   ['POST', '/snapshot'],
@@ -12,6 +12,7 @@ const ROUTES: [string, string][] = [
   ['POST', '/graphql'],
   ['GET', '/status'],
   ['POST', '/devices/revoke'],
+  ['POST', '/reading'],
   ['GET', '/nothing-here'],
 ];
 const peer = { schemaVersion: SCHEMA, registry: REGISTRY };
@@ -269,6 +270,39 @@ test('no log line carries a pairing code or a device token', async () => {
     assert.ok(r.logs.length > 0, 'something was logged');
     assert.doesNotMatch(joined, new RegExp(code));
     assert.ok(!joined.includes(a.token), 'the token is not in the log');
+  } finally {
+    await r.stop();
+  }
+});
+
+test('/reading pauses or resumes reading on the pod and answers the status', async () => {
+  const { services, calls } = fakeServices();
+  const r = await run({ services, calls });
+  try {
+    const a = await r.pair('A');
+    const paused = await r.call(a.token, '/reading', { paused: true });
+    assert.equal(paused.status, 200);
+    assert.equal(JSON.parse(paused.body).reading, 'paused');
+    assert.deepEqual(calls.reading, [{ paused: true }]);
+    assert.equal((await r.call(a.token, '/reading', { paused: 'yes' })).status, 400);
+    assert.equal((await r.call(a.token, '/reading', { everyMinutes: 5 })).status, 400, 'only the pause is set from a phone');
+    assert.deepEqual(calls.reading, [{ paused: true }]);
+  } finally {
+    await r.stop();
+  }
+});
+
+test('a profile replace on another schema version answers 409 and names the older side', async () => {
+  const { services, calls } = fakeServices({}, { has: true });
+  services.profile.replaceProfile = async () => {
+    throw new Mismatch('The phone is older than the pod. Both sides must run the same version to share data.');
+  };
+  const r = await run({ services, calls });
+  try {
+    const a = await r.pair('A');
+    const reply = await r.call(a.token, '/profile/replace', { schemaVersion: SCHEMA - 1, tables: {} });
+    assert.equal(reply.status, 409);
+    assert.deepEqual(JSON.parse(reply.body), { error: 'version_mismatch', message: 'The phone is older than the pod. Both sides must run the same version to share data.' });
   } finally {
     await r.stop();
   }

@@ -16,7 +16,7 @@ link for the app. The code has 10 characters, works once and lasts 10 minutes. A
 total, or 5 tries in a minute, pairing is refused until a new code is printed. Several phones can pair,
 each with its own code. `mera-news-pod-sync devices` lists them and `devices --revoke <id>` removes one.
 
-The first phone paired may replace the pod's profile with its own. A later phone cannot.
+A phone may replace the pod's profile with its own only while it is the one paired device. Once a second phone has paired, neither can.
 
 ## Shared settings
 

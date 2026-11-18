@@ -29,6 +29,7 @@ export interface Calls {
   snapshot: { hashes?: Record<string, string>; peer?: { schemaVersion: number; registry: number } }[];
   commands: unknown[];
   replace: unknown[];
+  reading: unknown[];
   chat: { body: unknown; signal?: AbortSignal; extra: number }[];
   graphql: unknown[];
   readNow: number;
@@ -46,12 +47,12 @@ function snapshotFor(hashes: Record<string, string> = {}): Snapshot {
   return { schemaVersion: SCHEMA, registry: REGISTRY, tables };
 }
 
-class Mismatch extends Error {
+export class Mismatch extends Error {
   code = 'version_mismatch';
 }
 
 export function fakeServices(over: Partial<PodServices> = {}, profile = { has: false }): { services: PodServices; calls: Calls } {
-  const calls: Calls = { snapshot: [], commands: [], replace: [], chat: [], graphql: [], readNow: 0, listeners: 0 };
+  const calls: Calls = { snapshot: [], commands: [], replace: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0 };
   const services: PodServices = {
     profile: {
       get: async () => ({ facts: [] }),
@@ -64,7 +65,7 @@ export function fakeServices(over: Partial<PodServices> = {}, profile = { has: f
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
     reading: {
       status: async () => status(),
-      set: async () => status(),
+      set: async (c) => (calls.reading.push(c), status({ reading: c.paused ? 'paused' : 'on' })),
       readNow: async () => {
         calls.readNow++;
         return 'ran';
