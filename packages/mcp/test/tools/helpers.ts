@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import type { PluginContext, PodServices, PodStatus, PickView } from 'mera-news-pod/plugin-api';
+import type { PluginContext, PodServicesV1 as PodServices, PodStatus, PickView } from 'mera-news-pod/plugin-api';
 import { createPlugin } from '../../src';
 
 export const TOKEN = 'test-token-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -48,6 +48,9 @@ export function fakeServices(over: Partial<PodServices> = {}): PodServices {
       get: async () => ({ state: 'ok', hint: 'Fine.', nextReadAt: null, picks: [pick(1)], cursor: 'a.1', more: false }),
     },
     reading: { status: async () => status(), set: async (c) => status({ reading: c.paused ? 'paused' : 'on', everyMinutes: c.everyMinutes ?? 60 }) },
+    // The mcp plugin uses neither; they are part of what a version 1 plugin is given.
+    model: { chatCompletions: async () => new Response('{}') },
+    news: { graphql: async () => ({ data: null }) },
     ...over,
   };
 }
