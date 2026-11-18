@@ -2,11 +2,12 @@
 import os from 'node:os';
 import path from 'node:path';
 import { runBridge } from './bridge';
-import { rotateToken } from './token';
+import { readToken, rotateToken, tokenPath } from './token';
 
 const usage = `Usage:
   mera-news-pod-mcp bridge --url <url> [--home <dir>]
-  mera-news-pod-mcp token --rotate [--home <dir>]`;
+  mera-news-pod-mcp token --rotate [--home <dir>]
+  mera-news-pod-mcp url --base <address> [--home <dir>]`;
 
 function option(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -25,11 +26,21 @@ async function main(args: string[]): Promise<number> {
     return 0;
   }
   if (args[0] === 'token' && args.includes('--rotate')) {
-    const token = rotateToken(home);
+    const token = rotateToken(tokenPath(home));
     process.stdout.write(`${token}\n`);
     process.stderr.write(
       'This is the new token. It is shown once. The old token stops working as soon as the pod reads the file again, which it does on every request.\n',
     );
+    return 0;
+  }
+  if (args[0] === 'url') {
+    // The capability address carries the token, so it is printed only when asked for by name.
+    const base = option(args, '--base');
+    if (!base) {
+      process.stderr.write('Give the address the client reaches the pod at, for example --base https://pod.example.com\n');
+      return 2;
+    }
+    process.stdout.write(`${base.replace(/\/+$/, '')}/mcp/${readToken(tokenPath(home))}\n`);
     return 0;
   }
   process.stderr.write(`${usage}\n`);

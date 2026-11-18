@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline';
-import { readToken } from './token';
+import { readToken, tokenPath } from './token';
 
 // Every tool answers from the pod's own database, so a minute is long; a client showing a spinner gets an answer.
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -48,7 +48,7 @@ export async function runBridge(opts: { url: string; home: string } & Partial<St
     const id = message?.id;
     let token: string;
     try {
-      token = readToken(opts.home);
+      token = readToken(tokenPath(opts.home));
     } catch (e) {
       return fail(id, (e as Error).message);
     }

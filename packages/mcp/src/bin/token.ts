@@ -4,9 +4,8 @@ import path from 'node:path';
 
 export const tokenPath = (home: string) => path.join(path.resolve(home), 'data', 'plugins', 'mcp', 'token');
 
-/** Reads the token, refusing a file that group or others can read. Throws a plain sentence. */
-export function readToken(home: string): string {
-  const file = tokenPath(home);
+/** Reads the token file, refusing one that group or others can read. Throws a plain sentence. */
+export function readToken(file: string): string {
   let stat: ReturnType<typeof lstatSync>;
   try {
     stat = lstatSync(file);
@@ -21,9 +20,8 @@ export function readToken(home: string): string {
   return readFileSync(file, 'utf8').trim();
 }
 
-/** Writes a new random token readable only by its owner and returns it. */
-export function rotateToken(home: string): string {
-  const file = tokenPath(home);
+/** Writes a new random token to the file, readable only by its owner, and returns it. */
+export function rotateToken(file: string): string {
   const token = randomBytes(32).toString('base64url');
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, `${token}\n`, { mode: 0o600 });
