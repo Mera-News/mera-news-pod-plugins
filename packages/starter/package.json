@@ -1,0 +1,15 @@
+{
+  "name": "mera-news-pod-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The smallest plugin for mera-news-pod: a local page and three JSON routes that show your picks. Copy it to start your own.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Mera Labs B.V.",
+  "main": "build/index.js",
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
