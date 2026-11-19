@@ -126,6 +126,7 @@ export async function run(opts: { services?: PodServices; calls?: Calls; config?
   const log = (level: string) => (m: string, c?: unknown) => void logs.push(`${level} ${m} ${c ? JSON.stringify(c) : ''}`);
   const ctx: PluginContext = {
     podApi: 2,
+    wakeRelay: null,
     services: fake.services,
     config: { port: 0, podName: 'Test pod', ...opts.config },
     dataDir,
