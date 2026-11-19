@@ -258,7 +258,7 @@ test('no log line carries a pairing code or a device token', async () => {
   const r = await run();
   try {
     const code = r.newCode();
-    const wrong = await r.raw({ path: '/pair', body: JSON.stringify({ code: `${code.slice(0, 9)}X`, deviceName: 'A' }) });
+    const wrong = await r.raw({ path: '/pair', body: JSON.stringify({ code: `${code.slice(0, 9)}${code[9] === 'X' ? 'Y' : 'X'}`, deviceName: 'A' }) });
     assert.equal(wrong.status, 403);
     const a = await r.pair('A');
     await r.call(a.token, '/status', undefined, 'GET');
