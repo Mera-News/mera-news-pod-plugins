@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Plugins for mera-news-pod, one package each.",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Mera Labs B.V.",
   "engines": {
     "node": ">=22.13"

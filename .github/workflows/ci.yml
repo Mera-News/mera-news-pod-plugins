@@ -70,4 +70,4 @@ jobs:
       - name: Production dependency licenses
         run: >
           npx --yes license-checker-rseidelsohn@4.4.2 --production --excludePrivatePackages
-          --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;Zlib;(MIT AND Zlib);CC0-1.0;BlueOak-1.0.0;AGPL-3.0-only"
+          --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;Zlib;(MIT AND Zlib);CC0-1.0;BlueOak-1.0.0"

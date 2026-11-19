@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A plugin for mera-news-pod that a paired phone talks to: pairing, the pod's snapshot, commands, model and news.",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Mera Labs B.V.",
   "main": "build/index.js",
   "bin": {
