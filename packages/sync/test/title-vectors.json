@@ -1,0 +1,170 @@
+{
+  "about": "Shared title-cleaning vectors for POST /api/pod/notify. The pod's sync plugin runs this same table. Each row: in, and out (the cleaned title) or out null (refused, 400). Every non-ASCII character is escaped on purpose: keep it that way.",
+  "rows": [
+    {
+      "name": "line break and tab become spaces",
+      "in": "a\nb\tc",
+      "out": "a b c"
+    },
+    {
+      "name": "carriage return and NEL (Cc) become spaces",
+      "in": "a\r\u0085b",
+      "out": "a b"
+    },
+    {
+      "name": "bidi override removed",
+      "in": "x\u202ey",
+      "out": "xy"
+    },
+    {
+      "name": "bidi isolates and marks removed",
+      "in": "\u2066a\u2069\u200eb\u200f\u061c",
+      "out": "ab"
+    },
+    {
+      "name": "zero-width space removed",
+      "in": "a\u200bb",
+      "out": "ab"
+    },
+    {
+      "name": "zero-width non-joiner removed",
+      "in": "a\u200cb",
+      "out": "ab"
+    },
+    {
+      "name": "word joiner removed",
+      "in": "a\u2060b",
+      "out": "ab"
+    },
+    {
+      "name": "byte order mark removed",
+      "in": "\ufeffa\ufeffb",
+      "out": "ab"
+    },
+    {
+      "name": "soft hyphen (Cf) removed",
+      "in": "co\u00adop",
+      "out": "coop"
+    },
+    {
+      "name": "line and paragraph separators become one space",
+      "in": "a\u2028\u2029b",
+      "out": "a b"
+    },
+    {
+      "name": "no-break and ideographic spaces become one space",
+      "in": "a\u00a0\u3000 b",
+      "out": "a b"
+    },
+    {
+      "name": "trimmed",
+      "in": "  a b  ",
+      "out": "a b"
+    },
+    {
+      "name": "family emoji keeps its joiners",
+      "in": "\ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67",
+      "out": "\ud83d\udc69\u200d\ud83d\udc69\u200d\ud83d\udc67"
+    },
+    {
+      "name": "skin tone before a joiner keeps it",
+      "in": "\ud83d\udc69\ud83c\udffd\u200d\ud83d\udcbb",
+      "out": "\ud83d\udc69\ud83c\udffd\u200d\ud83d\udcbb"
+    },
+    {
+      "name": "variation selector before a joiner keeps it",
+      "in": "\u2764\ufe0f\u200d\ud83d\udd25",
+      "out": "\u2764\ufe0f\u200d\ud83d\udd25"
+    },
+    {
+      "name": "rainbow flag keeps its joiner",
+      "in": "\ud83c\udff3\ufe0f\u200d\ud83c\udf08",
+      "out": "\ud83c\udff3\ufe0f\u200d\ud83c\udf08"
+    },
+    {
+      "name": "joiner after a variation selector that follows no emoji removed",
+      "in": "a\ufe0f\u200d\ud83d\udc69",
+      "out": "a\ufe0f\ud83d\udc69"
+    },
+    {
+      "name": "joiner after two variation selectors removed",
+      "in": "\u2764\ufe0f\ufe0f\u200d\ud83d\udd25",
+      "out": "\u2764\ufe0f\ufe0f\ud83d\udd25"
+    },
+    {
+      "name": "joiner between letters removed",
+      "in": "a\u200db",
+      "out": "ab"
+    },
+    {
+      "name": "joiner after an emoji but before a letter removed",
+      "in": "\ud83d\udc69\u200db",
+      "out": "\ud83d\udc69b"
+    },
+    {
+      "name": "lone high surrogate removed",
+      "in": "a\ud800b",
+      "out": "ab"
+    },
+    {
+      "name": "lone low surrogate removed",
+      "in": "a\udc00b",
+      "out": "ab"
+    },
+    {
+      "name": "plain headline unchanged",
+      "in": "Floods close the A1 near Leeds",
+      "out": "Floods close the A1 near Leeds"
+    },
+    {
+      "name": "non-Latin headline unchanged",
+      "in": "\u6771\u4eac\u3067\u5927\u96e8 \u4ea4\u901a\u306b\u5f71\u97ff",
+      "out": "\u6771\u4eac\u3067\u5927\u96e8 \u4ea4\u901a\u306b\u5f71\u97ff"
+    },
+    {
+      "name": "look-alike letters accepted",
+      "in": "P\u0430y your bill",
+      "out": "P\u0430y your bill"
+    },
+    {
+      "name": "empty refused",
+      "in": "",
+      "out": null
+    },
+    {
+      "name": "only spaces refused",
+      "in": "   ",
+      "out": null
+    },
+    {
+      "name": "only invisible characters refused",
+      "in": "\u200b\u202e\n",
+      "out": null
+    },
+    {
+      "name": "scheme refused",
+      "in": "see http://x.example",
+      "out": null
+    },
+    {
+      "name": "scheme refused in any case",
+      "in": "HTTPS://X.EXAMPLE now",
+      "out": null
+    },
+    {
+      "name": "www refused in any case",
+      "in": "Visit WWW.x.example",
+      "out": null
+    },
+    {
+      "name": "www hidden by a zero-width space refused",
+      "in": "w\u200bww.x.example",
+      "out": null
+    },
+    {
+      "name": "scheme split by a zero-width space refused",
+      "in": "http:/\u200b/x",
+      "out": null
+    }
+  ]
+}

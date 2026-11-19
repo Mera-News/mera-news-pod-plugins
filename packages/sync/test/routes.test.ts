@@ -52,7 +52,7 @@ test('/status shows the pod status, name and versions to a paired device', async
   try {
     const a = await r.pair('A');
     const body = JSON.parse((await r.call(a.token, '/status', undefined, 'GET')).body);
-    assert.deepEqual(body, { ...status(), podName: 'Test pod', schemaVersion: SCHEMA, registry: REGISTRY, wakeups: 'disabled', relayOrigin: null });
+    assert.deepEqual(body, { ...status(), podName: 'Test pod', schemaVersion: SCHEMA, registry: REGISTRY, appNotifications: 'off', relayOrigin: null });
     assert.equal(r.calls.snapshot.length, 0, 'the versions come without reading any table');
   } finally {
     await r.stop();

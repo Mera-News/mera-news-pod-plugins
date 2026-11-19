@@ -1,18 +1,18 @@
-// A paired phone, a stored wake-up pass and a new pick, end to end: the built pod and the built sync
-// plugin under plain node, with a fake relay on loopback over https (the pod only accepts an https relay).
+// A paired phone, a stored pass and a high pick, end to end: the built pod and the built sync plugin
+// under plain node, with a fake relay on loopback over https (the pod only accepts an https relay).
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { defaultSchemaPath, startFakeDataServer, startFakeModel, type FakeDataServer, type FakeModel } from 'mera-news-pod/testing';
+import { defaultResponder, defaultSchemaPath, startFakeDataServer, startFakeModel, type FakeDataServer, type FakeModel } from 'mera-news-pod/testing';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const CAP = 'wakeup-capability-for-the-e2e-test';
+const CAP = 'notify-capability-for-the-e2e-test';
 const plainEnv = (extra: NodeJS.ProcessEnv = {}) => {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
   delete env.NODE_OPTIONS;
@@ -39,11 +39,11 @@ let model: FakeModel;
 let relay: https.Server;
 let home: string;
 let pod: ChildProcess;
-const pings: { url?: string; body: string }[] = [];
+const notifies: { url?: string; body: string }[] = [];
 const output: string[] = [];
 
 before(async () => {
-  home = mkdtempSync(path.join(os.tmpdir(), 'pod-wake-'));
+  home = mkdtempSync(path.join(os.tmpdir(), 'pod-notify-'));
   const key = path.join(home, 'relay.key');
   const cert = path.join(home, 'relay.crt');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
@@ -51,13 +51,14 @@ before(async () => {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', () => {
-      pings.push({ url: req.url, body });
-      res.writeHead(202, { 'content-type': 'application/json' }).end('{}');
+      notifies.push({ url: req.url, body });
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
     });
   });
   const relayPort = await new Promise<number>((resolve) => relay.listen(0, '127.0.0.1', () => resolve((relay.address() as net.AddressInfo).port)));
   data = await startFakeDataServer({ schemaPath: defaultSchemaPath(), articles, topics: { 'follows chess': ['a1'], 'chess latest': ['a1'] } });
-  model = await startFakeModel();
+  // Every article is rated highly, so the planted article becomes a high pick.
+  model = await startFakeModel({ responder: (body) => (/^\[[\d.,\s]+\]$/.test(defaultResponder(body)) ? JSON.stringify(JSON.parse(defaultResponder(body)).map(() => 0.9)) : defaultResponder(body)) });
   const port = await freePort();
   writeFileSync(
     path.join(home, 'pod.json'),
@@ -65,7 +66,7 @@ before(async () => {
       dataServer: { url: data.origin },
       ai: { baseUrl: model.baseUrl, model: 'm' },
       language: 'en',
-      wakeRelay: `https://127.0.0.1:${relayPort}`,
+      notify: { meraNewsApp: { enabled: true, url: `https://127.0.0.1:${relayPort}` } },
       plugins: [{ package: path.resolve(__dirname, '..', '..'), config: { port, podName: 'Test pod' } }],
     }),
     { mode: 0o600 },
@@ -83,7 +84,7 @@ after(async () => {
   if (home) rmSync(home, { recursive: true, force: true });
 });
 
-test('pairing, a stored capability and a planted pick give exactly one ping at the fake relay', async () => {
+test('pairing, a stored pass and a planted high pick give exactly one notify request whose pickId is that pick\'s row id', async () => {
   const port = (globalThis as { __port?: number }).__port!;
   const tail = () => `last pod output:\n${output.slice(-15).join('\n')}`;
   let token = '';
@@ -109,23 +110,22 @@ test('pairing, a stored capability and a planted pick give exactly one ping at t
   assert.ok(code, printed);
   const paired = JSON.parse((await request('POST', '/pair', { code, deviceName: 'Phone' })).text);
   token = paired.token;
-  assert.equal((await request('POST', '/ping', { capability: CAP, expiresAt: 1_900_000_000 })).status, 200);
+  assert.equal((await request('POST', '/push-pass', { capability: CAP, expiresAt: 1_900_000_000 })).status, 200);
   const status = JSON.parse((await request('GET', '/status')).text);
-  assert.deepEqual([status.wakeups, status.relayOrigin?.startsWith('https://127.0.0.1:')], ['on', true]);
+  assert.deepEqual([status.appNotifications, status.relayOrigin?.startsWith('https://127.0.0.1:')], ['on', true]);
 
-  // The new pick: a fact makes the pod read and rate the planted article. The phone then goes quiet
-  // (its last sighting is moved back), so the wake-up is not held for the 2 minutes after it.
+  // The new pick: a fact makes the pod read and rate the planted article.
   const versions = { schemaVersion: status.schemaVersion, registry: status.registry };
   assert.equal((await request('POST', '/commands', { ...versions, hashes: {}, commands: [{ name: 'addFact', args: ['Follows chess'] }] })).status, 200);
-  const seenFile = path.join(home, 'data', 'plugins', 'sync', 'seen.json');
-  writeFileSync(`${seenFile}.tmp`, JSON.stringify({ [paired.deviceId]: '2000-01-01T00:00:00.000Z' }), { mode: 0o600 });
-  renameSync(`${seenFile}.tmp`, seenFile);
 
-  for (const end = Date.now() + 45_000; pings.length === 0; await sleep(200)) if (Date.now() > end) assert.fail(`no ping reached the relay within 45 s\n${tail()}`);
-  await sleep(6000); // more reading rounds: inside the window they add nothing
-  assert.equal(pings.length, 1, tail());
-  assert.equal(pings[0].url, '/api/pod/ping');
-  assert.deepEqual(JSON.parse(pings[0].body), { capability: CAP });
+  for (const end = Date.now() + 45_000; notifies.length === 0; await sleep(200)) if (Date.now() > end) assert.fail(`no notify request reached the relay within 45 s\n${tail()}`);
+  await sleep(6000); // more reading rounds add nothing: each story is sent once
+  assert.equal(notifies.length, 1, tail());
+  assert.equal(notifies[0].url, '/api/pod/notify');
+  const sent = JSON.parse(notifies[0].body);
+  assert.deepEqual(Object.keys(sent).sort(), ['capability', 'pickId', 'title']);
+  assert.equal(sent.capability, CAP);
+  assert.ok(articles.some((a) => a.title === sent.title && a._id === sent.pickId), `title and pickId belong to one article: ${notifies[0].body}`);
   assert.deepEqual(output.filter((l) => l.includes(CAP)), [], 'the capability is printed nowhere');
   assert.deepEqual(output.filter((l) => l.includes('blocked request to')), []);
   pod.kill('SIGTERM');

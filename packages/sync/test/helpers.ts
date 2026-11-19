@@ -3,7 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import type { PluginContext, PodServices, PodStatus, Snapshot } from 'mera-news-pod/plugin-api';
+import type { PickLevel, PickView, PluginContext, PodServices, PodStatus, Snapshot } from 'mera-news-pod/plugin-api';
 import { createPlugin } from '../src';
 import { createPairing } from '../src/store';
 
@@ -34,8 +34,8 @@ export interface Calls {
   graphql: unknown[];
   readNow: number;
   listeners: number;
-  /** Fires every 'changed' listener, as the pod does after the data moved. */
-  emit(): void;
+  /** Hands a batch to every 'notify' listener, as the pod does, and returns what they return. */
+  notify(picks: PickView[]): Promise<unknown>;
 }
 
 const TABLES: Record<string, Record<string, unknown>[]> = { facts: [{ id: 'f1' }], topics: [{ id: 't1' }] };
@@ -54,8 +54,8 @@ export class Mismatch extends Error {
 }
 
 export function fakeServices(over: Partial<PodServices> = {}): { services: PodServices; calls: Calls } {
-  const changed = new Set<() => void>();
-  const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0, emit: () => changed.forEach((l) => l()) };
+  const notifying = new Set<(picks: PickView[]) => unknown>();
+  const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0, notify: async (picks) => [...notifying].map((l) => l(picks)) };
   const services: PodServices = {
     profile: {
       get: async () => ({ facts: [] }),
@@ -90,11 +90,12 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
       versions: () => ({ schemaVersion: SCHEMA, registry: REGISTRY }),
     },
     events: {
-      on: (_event, listener) => {
+      on: ((event: string, listener: (picks: PickView[]) => unknown) => {
+        if (event !== 'notify') return () => {};
         calls.listeners++;
-        changed.add(listener);
-        return () => (calls.listeners--, void changed.delete(listener));
-      },
+        notifying.add(listener);
+        return () => (calls.listeners--, void notifying.delete(listener));
+      }) as PodServices['events']['on'],
     },
     ...over,
   };
@@ -122,16 +123,29 @@ export interface Running {
   stop(): Promise<void>;
 }
 
-export async function run(opts: { services?: PodServices; calls?: Calls; config?: object; wakeRelay?: string | null } = {}): Promise<Running> {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'sync-'));
+export const pick = (id: string, level: PickLevel = 'high', title = `Headline ${id}`): PickView => ({
+  id,
+  title,
+  publication: 'Paper',
+  url: `https://example.org/${id}`,
+  publishedAt: '2026-11-18T01:00:00.000Z',
+  level,
+  lang: 'en',
+  reason: 'A reason.',
+  facts: [],
+});
+
+export async function run(opts: { services?: PodServices; calls?: Calls; config?: object; meraNewsApp?: string | null; home?: string; prepare?: (dataDir: string) => void } = {}): Promise<Running> {
+  const home = opts.home ?? mkdtempSync(path.join(os.tmpdir(), 'sync-'));
   const dataDir = path.join(home, 'data', 'plugins', 'sync');
   mkdirSync(dataDir, { recursive: true });
+  opts.prepare?.(dataDir);
   const fake = opts.services ? { services: opts.services, calls: opts.calls ?? fakeServices().calls } : fakeServices();
   const logs: string[] = [];
   const log = (level: string) => (m: string, c?: unknown) => void logs.push(`${level} ${m} ${c ? JSON.stringify(c) : ''}`);
   const ctx: PluginContext = {
     podApi: 2,
-    wakeRelay: opts.wakeRelay ?? null,
+    meraNewsApp: opts.meraNewsApp ?? null,
     services: fake.services,
     config: { port: 0, podName: 'Test pod', ...opts.config },
     dataDir,
@@ -178,27 +192,46 @@ export interface RelayRequest {
   url?: string;
   headers: http.IncomingHttpHeaders;
   body: string;
+  /** Date.now() when it arrived, so a test with mocked time can see when each was sent. */
+  at: number;
 }
 
 export interface Relay {
   origin: string;
   requests: RelayRequest[];
-  /** What the next requests get; defaults to 202. */
-  answer: { status: number; body?: string; location?: string; delayMs?: number };
+  /** What the next requests get; defaults to 200. */
+  answer: Answer;
+  /** Answers used first, one per request, before `answer`. */
+  queue: Answer[];
+  /** Called as each request arrives, before it is answered. */
+  onRequest?: (r: RelayRequest) => void;
   close(): Promise<void>;
 }
 
+export interface Answer {
+  status: number;
+  body?: string;
+  location?: string;
+  delayMs?: number;
+  headers?: Record<string, string>;
+  /** Drops the connection instead of answering, as a network error does. */
+  drop?: boolean;
+}
+
 /** A relay on loopback that records what it is sent. */
-export async function startRelay(answer: Relay['answer'] = { status: 202 }): Promise<Relay> {
+export async function startRelay(answer: Answer = { status: 200 }): Promise<Relay> {
   const requests: RelayRequest[] = [];
-  const relay: Relay = { origin: '', requests, answer, close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(() => resolve()))) };
+  const relay: Relay = { origin: '', requests, answer, queue: [], close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(() => resolve()))) };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', () => {
-      requests.push({ method: req.method, url: req.url, headers: req.headers, body });
-      const a = relay.answer;
-      const reply = () => res.writeHead(a.status, { ...(a.location ? { location: a.location } : {}), 'content-type': 'application/json' }).end(a.body ?? '{}');
+      const seen = { method: req.method, url: req.url, headers: req.headers, body, at: Date.now() };
+      requests.push(seen);
+      relay.onRequest?.(seen);
+      const a = relay.queue.shift() ?? relay.answer;
+      if (a.drop) return void req.socket.destroy();
+      const reply = () => res.writeHead(a.status, { ...(a.location ? { location: a.location } : {}), ...a.headers, 'content-type': 'application/json' }).end(a.body ?? '{}');
       if (a.delayMs) setTimeout(reply, a.delayMs);
       else reply();
     });

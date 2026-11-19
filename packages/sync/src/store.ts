@@ -65,28 +65,45 @@ export function removeDevice(dir: string, id: string): boolean {
   const devices = listDevices(dir);
   if (!devices.some((d) => d.id === id)) return false;
   writeSecretJson(devicesFile(dir), devices.filter((d) => d.id !== id));
-  setPing(dir, id, undefined); // the command line revokes through here too, so a revoked phone is never woken
+  setPass(dir, id, undefined); // the command line revokes through here too, so a revoked phone is never notified
   return true;
 }
 
-/** What the relay needs to wake one device, kept apart from the devices file like the seen times. */
-export interface PingEntry {
+/** What the app notifier needs for one device, kept apart from the devices file like the seen times. */
+export interface PassEntry {
   capability: string;
   expiresAt: number;
-  lastSentAt?: number;
-  pending?: true;
 }
 
-const pingFile = (dir: string) => path.join(dir, 'ping.json');
+const passFile = (dir: string) => path.join(dir, 'push-pass.json');
 
-export const readPings = (dir: string): Record<string, PingEntry> => readSecretJson<Record<string, PingEntry>>(pingFile(dir)) ?? {};
+export const readPasses = (dir: string): Record<string, PassEntry> => readSecretJson<Record<string, PassEntry>>(passFile(dir)) ?? {};
 
-/** Stores one device's entry, or removes it when `entry` is undefined. Other devices' entries are untouched. */
-export function setPing(dir: string, id: string, entry: PingEntry | undefined): void {
-  const all = readPings(dir);
+/** Stores one device's pass, or removes it when `entry` is undefined. Other devices' passes are untouched. */
+export function setPass(dir: string, id: string, entry: PassEntry | undefined): void {
+  const all = readPasses(dir);
   if (!entry && !(id in all)) return;
   const { [id]: _old, ...rest } = all;
-  writeSecretJson(pingFile(dir), entry ? { ...rest, [id]: entry } : rest);
+  writeSecretJson(passFile(dir), entry ? { ...rest, [id]: entry } : rest);
+}
+
+export const clearPasses = (dir: string) => rmSync(passFile(dir), { force: true });
+
+const NOTIFIED_KEEP = 100;
+const NOTIFIED_DAYS = 7;
+const notifiedFile = (dir: string) => path.join(dir, 'notified.json');
+
+export interface Notified {
+  articleId: string;
+  at: number;
+}
+
+export const readNotified = (dir: string): Notified[] => readSecretJson<Notified[]>(notifiedFile(dir)) ?? [];
+
+/** Remembers that a story was tried: the newest 100 of the last 7 days. */
+export function recordNotified(dir: string, articleId: string, now: number): void {
+  const fresh = readNotified(dir).filter((e) => now - e.at < NOTIFIED_DAYS * 86_400_000);
+  writeSecretJson(notifiedFile(dir), [...fresh, { articleId, at: now }].slice(-NOTIFIED_KEEP));
 }
 
 /** When each device was last seen, by id. */
