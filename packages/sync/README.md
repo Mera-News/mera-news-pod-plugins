@@ -27,15 +27,17 @@ While a phone is paired, `pair` prints no code. `mera-news-pod-sync devices` sho
 Pairing erases the phone's own data, and the phone then shows only what the pod holds. A phone never
 sends its profile to the pod.
 
-## Wake-ups
+## Notifications on the phone
 
-The pod can ask the phone to wake up when the news changes, so the feed is fresh when you open the app. See [wake-ups](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/sync.md#wake-ups) in the pod's docs for what a wake-up is and what Mera, Expo and Apple or Google see. In short: Mera sees that a wake-up was sent and when, and Expo and Apple or Google see a notification with no content.
+When `notify.meraNewsApp` is on in `pod.json`, the plugin shows new top stories on the paired phone through Mera's sign-in service. See [notifications on the phone](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/sync.md#notifications-on-the-phone) in the pod's docs for what Mera, Expo and Apple or Google receive.
 
-The phone gives the plugin a pass for the relay with `POST /ping`, and an empty body takes it back. The pass is kept in `ping.json`, readable only by you, one entry per device. It goes out only to the relay named by `wakeRelay` in `pod.json`, over https, never to an address the phone gave. Without `wakeRelay`, or with `"wakeRelay": false`, wake-ups are off on the pod. A wake-up carries no news.
+- The phone hands over its pass with `POST /push-pass` `{ "capability", "expiresAt" }`, and `{}` takes it back. The pass is kept in `push-pass.json`, readable only by you, and goes only to the origin in `pod.json`, over https. Revoking the phone deletes it, and so does starting the pod with the notifier off.
+- For a new `emergency` or `high` story, the plugin posts `{ "capability", "title", "pickId" }` to `/api/pod/notify` on that origin. `title` is the cleaned headline, at most 200 characters, and `pickId` is the story's id, which the app opens. A headline with a web address in it is skipped.
+- At most one notification every 15 minutes; an emergency story goes at once. Each story is sent once, with at most one retry: `notified.json` remembers the last 100 for 7 days, so a restart does not send one again.
+- A 401 or 410 deletes the pass, and the app hands over a new one the next time it syncs. A 429 with a short wait, a 5xx or no answer is tried once more; a longer 429 keeps the plugin quiet until it ends.
+- `GET /status` shows `appNotifications` (`off`, `needs_pass` or `on`) and `relayOrigin`.
 
-The relay answers a pass it no longer accepts with `capability_invalid`, and only then does the pod delete the pass; the phone gets a new one when you open the app. Any other failure is retried at the next change. `GET /status` shows `wakeups` (`on`, `off` or `disabled`) and `relayOrigin`.
-
-A lost phone keeps getting wake-ups until you revoke it with `mera-news-pod-sync devices --revoke <id>`, which also deletes its pass.
+A lost phone keeps getting notifications until you revoke it with `mera-news-pod-sync devices --revoke <id>`, which also deletes its pass.
 
 ## Settings the phone changes
 
