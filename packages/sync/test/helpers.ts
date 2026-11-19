@@ -1,5 +1,6 @@
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { PluginContext, PodServices, PodStatus, Snapshot } from 'mera-news-pod/plugin-api';
@@ -33,6 +34,8 @@ export interface Calls {
   graphql: unknown[];
   readNow: number;
   listeners: number;
+  /** Fires every 'changed' listener, as the pod does after the data moved. */
+  emit(): void;
 }
 
 const TABLES: Record<string, Record<string, unknown>[]> = { facts: [{ id: 'f1' }], topics: [{ id: 't1' }] };
@@ -51,7 +54,8 @@ export class Mismatch extends Error {
 }
 
 export function fakeServices(over: Partial<PodServices> = {}): { services: PodServices; calls: Calls } {
-  const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0 };
+  const changed = new Set<() => void>();
+  const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0, emit: () => changed.forEach((l) => l()) };
   const services: PodServices = {
     profile: {
       get: async () => ({ facts: [] }),
@@ -86,9 +90,10 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
       versions: () => ({ schemaVersion: SCHEMA, registry: REGISTRY }),
     },
     events: {
-      on: () => {
+      on: (_event, listener) => {
         calls.listeners++;
-        return () => void calls.listeners--;
+        changed.add(listener);
+        return () => (calls.listeners--, void changed.delete(listener));
       },
     },
     ...over,
@@ -117,7 +122,7 @@ export interface Running {
   stop(): Promise<void>;
 }
 
-export async function run(opts: { services?: PodServices; calls?: Calls; config?: object } = {}): Promise<Running> {
+export async function run(opts: { services?: PodServices; calls?: Calls; config?: object; wakeRelay?: string | null } = {}): Promise<Running> {
   const home = mkdtempSync(path.join(os.tmpdir(), 'sync-'));
   const dataDir = path.join(home, 'data', 'plugins', 'sync');
   mkdirSync(dataDir, { recursive: true });
@@ -126,7 +131,7 @@ export async function run(opts: { services?: PodServices; calls?: Calls; config?
   const log = (level: string) => (m: string, c?: unknown) => void logs.push(`${level} ${m} ${c ? JSON.stringify(c) : ''}`);
   const ctx: PluginContext = {
     podApi: 2,
-    wakeRelay: null,
+    wakeRelay: opts.wakeRelay ?? null,
     services: fake.services,
     config: { port: 0, podName: 'Test pod', ...opts.config },
     dataDir,
@@ -166,4 +171,39 @@ export async function run(opts: { services?: PodServices; calls?: Calls; config?
     stop: () => plugin.stop(),
   };
   return r;
+}
+
+export interface RelayRequest {
+  method?: string;
+  url?: string;
+  headers: http.IncomingHttpHeaders;
+  body: string;
+}
+
+export interface Relay {
+  origin: string;
+  requests: RelayRequest[];
+  /** What the next requests get; defaults to 202. */
+  answer: { status: number; body?: string; location?: string; delayMs?: number };
+  close(): Promise<void>;
+}
+
+/** A relay on loopback that records what it is sent. */
+export async function startRelay(answer: Relay['answer'] = { status: 202 }): Promise<Relay> {
+  const requests: RelayRequest[] = [];
+  const relay: Relay = { origin: '', requests, answer, close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(() => resolve()))) };
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+      const a = relay.answer;
+      const reply = () => res.writeHead(a.status, { ...(a.location ? { location: a.location } : {}), 'content-type': 'application/json' }).end(a.body ?? '{}');
+      if (a.delayMs) setTimeout(reply, a.delayMs);
+      else reply();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  relay.origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return relay;
 }

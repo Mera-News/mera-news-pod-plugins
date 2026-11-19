@@ -65,7 +65,28 @@ export function removeDevice(dir: string, id: string): boolean {
   const devices = listDevices(dir);
   if (!devices.some((d) => d.id === id)) return false;
   writeSecretJson(devicesFile(dir), devices.filter((d) => d.id !== id));
+  setPing(dir, id, undefined); // the command line revokes through here too, so a revoked phone is never woken
   return true;
+}
+
+/** What the relay needs to wake one device, kept apart from the devices file like the seen times. */
+export interface PingEntry {
+  capability: string;
+  expiresAt: number;
+  lastSentAt?: number;
+  pending?: true;
+}
+
+const pingFile = (dir: string) => path.join(dir, 'ping.json');
+
+export const readPings = (dir: string): Record<string, PingEntry> => readSecretJson<Record<string, PingEntry>>(pingFile(dir)) ?? {};
+
+/** Stores one device's entry, or removes it when `entry` is undefined. Other devices' entries are untouched. */
+export function setPing(dir: string, id: string, entry: PingEntry | undefined): void {
+  const all = readPings(dir);
+  if (!entry && !(id in all)) return;
+  const { [id]: _old, ...rest } = all;
+  writeSecretJson(pingFile(dir), entry ? { ...rest, [id]: entry } : rest);
 }
 
 /** When each device was last seen, by id. */

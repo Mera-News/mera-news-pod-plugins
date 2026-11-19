@@ -14,10 +14,13 @@ import {
   listDevices,
   MAX_WRONG_CODES,
   normalizeCode,
+  type PingEntry,
   readPairing,
   removeDevice,
   sha256,
   lastSeen,
+  readPings,
+  setPing,
   touchDevice,
   writePairing,
 } from './store';
@@ -27,6 +30,10 @@ export const name = 'sync';
 
 const MB = 1024 * 1024;
 const TRIES_PER_MINUTE = 5;
+const SEEN_MS = 2 * 60_000;
+// The relay lets one wake-up through per 30 minutes; a minute more keeps the trailing ping out of that slot.
+const WINDOW_MS = 31 * 60_000;
+const SEND_TIMEOUT_MS = 10_000;
 
 interface Config {
   host: string;
@@ -92,10 +99,89 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   if (ctx.podApi !== 2) throw new Error('The sync plugin needs a pod that speaks plugin API version 2.');
   const services: PodServices = ctx.services;
   const config = readConfig(ctx.config);
+  const wakeRelay = ctx.wakeRelay;
   const dir = ctx.dataDir;
   let listening: http.Server | undefined;
   let port = config.port;
   const tries: number[] = []; // times of recent /pair tries, kept for the global limit
+  const timers = new Map<string, NodeJS.Timeout>(); // at most one per device, cleared on stop
+  const sending = new Set<string>();
+  const changedWhileSending = new Set<string>(); // a change during a send still leads to a later wake-up
+  const stopped = new AbortController();
+  let unsubscribe: (() => void) | undefined;
+
+  // Decides what a change means for one device: wait until the phone has been quiet, wait out the
+  // window since the last wake-up, or send. Every timer comes back here, so each wait re-checks.
+  function consider(id: string) {
+    clearTimeout(timers.get(id));
+    timers.delete(id);
+    const entry = readPings(dir)[id];
+    if (!entry || !wakeRelay) return;
+    if (sending.has(id)) return void changedWhileSending.add(id);
+    const now = Date.now();
+    // An expired pass would only be refused: drop it without asking, and the phone mints a new one.
+    if (entry.expiresAt * 1000 <= now) {
+      setPing(dir, id, undefined);
+      return ctx.log.warn("A phone's wake-up pass has expired. Open the app on that phone to resume wake-ups.");
+    }
+    const wait = (until: number) => timers.set(id, setTimeout(() => (timers.delete(id), consider(id)), Math.max(0, until - now)));
+    const seen = Date.parse(lastSeen(dir)[id] ?? '');
+    if (now - seen < SEEN_MS) return wait(seen + SEEN_MS);
+    if (entry.lastSentAt !== undefined && now < entry.lastSentAt + WINDOW_MS) {
+      if (!entry.pending) setPing(dir, id, { ...entry, pending: true });
+      return wait(entry.lastSentAt + WINDOW_MS);
+    }
+    void send(id, entry, wakeRelay);
+  }
+
+  // Only the capability goes out: nothing about what was read is in a wake-up.
+  async function send(id: string, entry: PingEntry, relay: string) {
+    sending.add(id);
+    let status = 0;
+    let invalid = false;
+    try {
+      const res = await fetch(new URL('/api/pod/ping', relay), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ capability: entry.capability }),
+        redirect: 'error',
+        signal: AbortSignal.any([AbortSignal.timeout(SEND_TIMEOUT_MS), stopped.signal]),
+      });
+      status = res.status;
+      if (status === 401) invalid = ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error === 'capability_invalid';
+      else void res.body?.cancel().catch(() => {});
+    } catch {
+      // a network error or a refused redirect: keep the entry, the next change tries again
+    } finally {
+      sending.delete(id);
+    }
+    if (stopped.signal.aborted) return;
+    const again = changedWhileSending.delete(id);
+    // The phone may have stored a newer capability while this one was in flight.
+    const current = readPings(dir)[id];
+    if (!current || current.capability !== entry.capability) {
+      if (again) consider(id);
+      return;
+    }
+    if (status === 202) {
+      const { pending: _pending, ...rest } = current;
+      setPing(dir, id, { ...rest, lastSentAt: Date.now() });
+    } else if (invalid) {
+      setPing(dir, id, undefined);
+      ctx.log.warn("A phone's wake-up pass was refused. Open the app on that phone to resume wake-ups.");
+    } else {
+      ctx.log.debug('A wake-up was not sent.', { reason: status ? `status_${status}` : 'no_answer' });
+    }
+    if (again) consider(id);
+  }
+
+  function onChanged() {
+    try {
+      for (const id of Object.keys(readPings(dir))) consider(id);
+    } catch {
+      ctx.log.warn('The wake-up file cannot be used, so no wake-up is sent.');
+    }
+  }
 
   function authenticate(header: string | undefined): Device | undefined {
     const given = /^Bearer (.+)$/.exec(header ?? '')?.[1];
@@ -168,7 +254,10 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     'POST /graphql': { limit: 2 * MB, run: async (res, b) => sendJson(res, 200, await services.news.graphql(b)) },
     'GET /status': {
       limit: 0,
-      run: async (res) => sendJson(res, 200, { ...(await services.reading.status()), podName: config.podName, ...services.display.versions() }),
+      run: async (res, _b, device) => {
+        const wakeups = !wakeRelay ? 'disabled' : readPings(dir)[device.id] ? 'on' : 'off';
+        sendJson(res, 200, { ...(await services.reading.status()), podName: config.podName, ...services.display.versions(), wakeups, relayOrigin: wakeRelay });
+      },
     },
     // The paired page's "Read the news" switch: only the pause, never the interval, which is the pod's own setting.
     'POST /reading': {
@@ -176,6 +265,21 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       run: async (res, b) => {
         if (typeof b.paused !== 'boolean' || Object.keys(b).length !== 1) throw new HttpError(400, 'bad_request');
         sendJson(res, 200, await services.reading.set({ paused: b.paused }));
+      },
+    },
+    // The phone's pass for the relay: a capability and when it ends, or `{}` to stop wake-ups.
+    'POST /ping': {
+      limit: 2048,
+      run: (res, b, device) => {
+        if (!b || typeof b !== 'object' || Array.isArray(b)) throw new HttpError(400, 'bad_request');
+        const keys = Object.keys(b);
+        if (keys.length === 0) setPing(dir, device.id, undefined);
+        else if (keys.length === 2 && typeof b.capability === 'string' && b.capability && typeof b.expiresAt === 'number' && Number.isFinite(b.expiresAt)) {
+          // A new pass is for the same phone, and the relay's slot is per phone: keep the window and any pending change.
+          const { lastSentAt, pending } = readPings(dir)[device.id] ?? {};
+          setPing(dir, device.id, { capability: b.capability, expiresAt: b.expiresAt, ...(lastSentAt !== undefined ? { lastSentAt } : {}), ...(pending ? { pending } : {}) });
+        } else throw new HttpError(400, 'bad_request');
+        sendJson(res, 200, {});
       },
     },
     'POST /devices/revoke': {
@@ -227,8 +331,14 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       });
       listening = server;
       port = (server.address() as AddressInfo).port;
+      if (wakeRelay) unsubscribe = services.events.on('changed', onChanged);
     },
     async stop() {
+      stopped.abort();
+      unsubscribe?.();
+      unsubscribe = undefined;
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
       const server = listening;
       listening = undefined;
       if (!server) return;
