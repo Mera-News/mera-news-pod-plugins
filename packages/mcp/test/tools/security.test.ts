@@ -39,6 +39,31 @@ test('a request without the right token is refused with no detail', async () => 
   }
 });
 
+test('a refusal names the bearer scheme, and says invalid_token only when a token was sent and was wrong', async () => {
+  const r = await run({ config: { capabilityUrl: true } });
+  try {
+    const challenge = async (o: { headers?: Record<string, string>; path?: string }) => {
+      const res = await r.raw({ ...o, body: initialize });
+      return { status: res.status, body: res.body, header: res.headers['www-authenticate'] };
+    };
+    // RFC 6750 section 3: no error code when the request carried no token at all.
+    const none = await challenge({});
+    assert.deepEqual(none, { status: 401, body: '', header: 'Bearer realm="mera-news-pod"' });
+    assert.deepEqual(await challenge({ headers: { authorization: 'Bearer ' } }), none);
+    assert.deepEqual(await challenge({ headers: { authorization: TOKEN } }), none, 'not the bearer scheme: no bearer token was sent');
+    const wrong = { status: 401, body: '', header: 'Bearer realm="mera-news-pod", error="invalid_token"' };
+    assert.deepEqual(await challenge({ headers: bearer('wrong') }), wrong);
+    assert.deepEqual(await challenge({ path: '/mcp/not-it' }), wrong);
+    // No resource_metadata: the pod offers no OAuth for a client to discover.
+    assert.doesNotMatch(String(wrong.header), /resource_metadata/);
+    const ok = await r.raw({ headers: bearer(), body: initialize });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers['www-authenticate'], undefined);
+  } finally {
+    await r.stop();
+  }
+});
+
 test('a rotated token takes effect at once, and an unusable token file refuses everything', async () => {
   const r = await run();
   try {

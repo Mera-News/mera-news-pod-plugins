@@ -46,6 +46,12 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   let port = config.port;
 
   const refuse = (res: http.ServerResponse, status: number) => void res.writeHead(status).end();
+  // RFC 6750 section 3: the bearer scheme on every 401, an error code only when a token was sent and
+  // was wrong. No resource_metadata: the pod offers no OAuth to discover. The body stays empty.
+  const challenge = (res: http.ServerResponse, tokenSent: boolean) =>
+    void res
+      .writeHead(401, { 'www-authenticate': `Bearer realm="mera-news-pod"${tokenSent ? ', error="invalid_token"' : ''}` })
+      .end();
 
   function onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!hostAllowed(req.headers.host, config.publicHost)) return refuse(res, 403);
@@ -61,10 +67,10 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       if (!expected) throw new Error('empty');
     } catch {
       ctx.log.warn('The token file cannot be used, so every request is refused.');
-      return refuse(res, 401);
+      return challenge(res, false);
     }
     const given = viaPath ? viaPath[1] : /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '';
-    if (!sameSecret(given, expected)) return refuse(res, 401);
+    if (!sameSecret(given, expected)) return challenge(res, given !== '');
 
     req.url = '/mcp';
     void serve(req, res);

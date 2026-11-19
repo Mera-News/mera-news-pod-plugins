@@ -79,7 +79,7 @@ export interface Running {
   home: string;
   writeToken(token: string, mode?: number): void;
   client(token?: string): Promise<Client>;
-  raw(options: { path?: string; headers?: Record<string, string>; method?: string; body?: string }): Promise<{ status: number; body: string }>;
+  raw(options: { path?: string; headers?: Record<string, string>; method?: string; body?: string }): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }>;
   stop(): Promise<void>;
 }
 
@@ -121,7 +121,7 @@ export async function run(opts: { services?: PodServices; config?: unknown; toke
         const req = http.request({ host: '127.0.0.1', port, path: p, method, headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers } }, (res) => {
           let data = '';
           res.on('data', (d) => (data += d));
-          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers }));
         });
         req.setTimeout(3000, () => req.destroy(new Error('no answer within 3 seconds')));
         req.on('error', reject);
