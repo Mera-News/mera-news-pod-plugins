@@ -7,6 +7,13 @@ Bug reports, ideas and pull requests are welcome.
 - Pull requests go to the `dev` branch.
 - Run the checks in the README before you open one.
 
+## Submitting a plugin
+
+There are two ways to share a plugin you wrote.
+
+1. **Add it to this repository.** Open a pull request that adds it as a package under `packages/`, with its own README and tests that run under `npm test`. It is reviewed before it is merged, and the contribution terms below apply.
+2. **Keep it in your own repository.** Open a pull request that adds one line to "Community plugins" in the README: its name, one line on what it does, and a link. It is not reviewed by Mera Labs; the list says so, and that people should only run plugins they trust.
+
 ## Contribution terms
 
 By opening a pull request you confirm that:
