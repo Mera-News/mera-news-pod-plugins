@@ -9,7 +9,7 @@ This project is in development.
 ## Packages
 
 - [`mcp`](packages/mcp): an MCP server, so an AI app can set up your profile and ask for new picks. Setup is in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/clients.md).
-- [`sync`](packages/sync): pairs the Mera News app with your pod, so the app shows the pod's profile and picks.
+- [`sync`](packages/sync): pairs the Mera News app with your pod. Not available yet: the app cannot pair with a pod.
 - [`starter`](packages/starter): a local page and three JSON routes for your picks. Copy it to start your own plugin; the pod's [plugin guide](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/plugins.md) explains what a plugin gets.
 
 To build and test them: `npm install`, then `npm run build`, `npm run typecheck` and `npm test`.

@@ -1,5 +1,7 @@
 # mera-news-pod-sync
 
+**Pairing the Mera News app with a pod is not available yet.** This package holds the pod's side of it.
+
 A plugin for mera-news-pod that a paired phone talks to. It serves the pod's tables, runs the app's
 changes, and passes model and news requests through, all behind a device token.
 
@@ -28,6 +30,8 @@ Pairing erases the phone's own data, and the phone then shows only what the pod 
 sends its profile to the pod.
 
 ## Notifications on the phone
+
+**Notifications on the phone are not available yet.**
 
 When `notify.meraNewsApp` is on in `pod.json`, the plugin shows new top stories on the paired phone through Mera's sign-in service. See [notifications on the phone](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/sync.md#notifications-on-the-phone) in the pod's docs for what Mera, Expo and Apple or Google receive.
 
