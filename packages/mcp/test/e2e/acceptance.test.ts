@@ -24,7 +24,7 @@ const articles = [
   'Central bank holds interest rates steady citing sluggish inflation',
   'Volcano eruption disrupts flights across Icelandic airspace',
   'Farmers protest fertiliser limits outside Brussels parliament',
-].map((title, i) => ({ _id: `a${i + 1}`, title, pubDate: new Date(Date.now() - i * 60_000).toISOString() }));
+].map((title, i) => ({ _id: `a${i + 1}`, title, ...(i === 7 ? { country_code: 'NLD' } : {}), pubDate: new Date(Date.now() - i * 60_000).toISOString() }));
 const titles = new Set(articles.map((a) => a.title));
 // The topics the fake model makes for the two facts below, and the stories each one matches: a1 to a8.
 const topics = {
@@ -226,6 +226,20 @@ describe('the pod with the mcp plugin, driven by an MCP client', () => {
     for (const b of topic) assert.ok(systemOf(b).includes(MARKER), 'a topic reason request lacks the marker');
     for (const b of headline) assert.ok(!systemOf(b).includes(MARKER), 'the marker reached the headline reason prompt');
     for (const b of other) assert.ok(!systemOf(b).includes(MARKER), `the marker leaked into another prompt: ${userOf(b).slice(0, 60)}`);
+  });
+
+  it('reads stored news with search_news and latest_news, without picks', async () => {
+    const found = await call('search_news', { query: 'volcano flights' });
+    assert.deepEqual(found.results.map((r: { title: string }) => r.title), ['Volcano eruption disrupts flights across Icelandic airspace']);
+    assert.match(found.results[0].link, /^https?:\/\//);
+    const latest = await call('latest_news', { limit: 3 });
+    assert.equal(latest.results.length, 3);
+    assert.ok(latest.results.every((r: { title: string }) => titles.has(r.title)));
+    assert.equal(typeof latest.nextCursor, 'string');
+    const next = await call('latest_news', { limit: 3, after: latest.nextCursor });
+    assert.ok(next.results.every((r: { id: string }) => !latest.results.some((l: { id: string }) => l.id === r.id)));
+    const nl = await call('latest_news', { country: 'NLD' });
+    assert.deepEqual(nl.results.map((r: { title: string }) => r.title), ['Central bank holds interest rates steady citing sluggish inflation']);
   });
 
   it('stops on SIGTERM with exit code 0', async () => {

@@ -19,6 +19,12 @@ const schemas = {
     since: z.string().min(1).optional(),
     limit: z.number().int().min(1).max(25).default(10),
   }),
+  search_news: z.object({ query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(25).default(10) }),
+  latest_news: z.object({
+    country: z.string().regex(/^[A-Z]{3}$/).optional(),
+    limit: z.number().int().min(1).max(25).default(10),
+    after: z.string().min(1).max(200).optional(),
+  }),
   get_status: z.object({}),
   set_reading: z.object({
     paused: z.boolean().optional(),
@@ -52,6 +58,61 @@ const pickOut = (p: PickView): PickView => ({
   reason: p.reason.slice(0, 1000),
   facts: p.facts.slice(0, 10),
 });
+
+const SEARCH_NEWS = `query SearchNews($query: String!, $limit: Int) { searchNews(query: $query, limit: $limit) { _id } }`;
+// The by-ids reply names the language and publisher differently from the country page.
+const ARTICLES_BY_IDS = `query GetArticlesForTopicsByIds($articleIds: [ID!]!) { articlesForTopicsByIds(articleIds: $articleIds) { articles { _id title title_en article_url pubDate language_code publication_name } } }`;
+const ARTICLE_FIELDS = `_id title title_en article_url pubDate original_language_code publicationSource { publication_name }`;
+const ARTICLES_FOR_COUNTRY = `query GetArticlesForCountry($countryCode: String, $first: Int, $after: String) { articlesForCountry(countryCode: $countryCode, first: $first, after: $after) { articles { ${ARTICLE_FIELDS} } pageInfo { endCursor hasNextPage } } }`;
+
+interface NewsArticleIn {
+  _id: string;
+  title?: string | null;
+  title_en?: string | null;
+  article_url?: string | null;
+  pubDate?: string | null;
+  original_language_code?: string | null;
+  language_code?: string | null;
+  publication_name?: string | null;
+  publicationSource?: { publication_name?: string | null } | null;
+}
+
+// Only the named fields leave, never a description or other article text. Text from a feed is capped.
+function newsOut(a: NewsArticleIn) {
+  const link = a.article_url ?? '';
+  if (!/^https?:\/\//.test(link)) return [];
+  return [
+    {
+      id: a._id,
+      title: (a.title || a.title_en || '').slice(0, 500),
+      link: link.slice(0, 2000),
+      publisher: (a.publicationSource?.publication_name ?? a.publication_name ?? '').slice(0, 200),
+      publishedAt: a.pubDate ?? '',
+      language: a.original_language_code || a.language_code || 'und',
+    },
+  ];
+}
+
+class NewsError extends Error {
+  constructor(public code: string, message: string, public next: string) {
+    super(message);
+  }
+}
+
+/** One news query. The store's own error text never reaches the reply. */
+async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationName: string, query: string, variables: object): Promise<T> {
+  let reply: { data?: T; errors?: { extensions?: { code?: string } }[] };
+  try {
+    reply = (await graphql({ operationName, query, variables })) as typeof reply;
+  } catch {
+    reply = { errors: [{}] };
+  }
+  if (reply.errors?.length || !reply.data) {require('fs').writeFileSync('/tmp/dbg.txt', JSON.stringify(reply));
+    if (reply.errors?.[0]?.extensions?.code === 'BAD_USER_INPUT') throw new NewsError('bad_input', 'The field "after" is not valid for latest_news.', 'call latest_news again without "after"');
+    throw new NewsError('news_unavailable', 'The news server could not answer.', 'try again later, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
+  }
+  return reply.data;
+}
 
 /** Room left in a reply for its state, hint, cursor and the like. */
 const ENVELOPE_TOKENS = 400;
@@ -115,6 +176,28 @@ export function buildServer(ctx: PluginContext): McpServer {
     const fits = (picks: PickView[]) => estimate(JSON.stringify(picks.map(pickOut))) + ENVELOPE_TOKENS <= TARGET_TOKENS;
     const got = await services.suggestions.get({ ...(since ? { since } : {}), limit, fits });
     return ok({ ...got, picks: got.picks.map(pickOut) }, estimate);
+  });
+
+  // Replies are cut to the target. A cut reply says so, and offers no cursor (the server's cursor ends the whole page).
+  const newsReply = (results: ReturnType<typeof newsOut>, extra: object = {}) => {
+    const { kept, cut } = fit(results, (k, c) => ({ results: k, ...(c ? { truncated: true } : extra) }), estimate);
+    return ok({ results: kept, ...(cut ? { truncated: true } : extra) }, estimate);
+  };
+
+  tool('search_news', readOnly, async ({ query, limit }) => {
+    const hits = await ask<{ searchNews: { _id: string }[] }>(services.news.graphql, 'SearchNews', SEARCH_NEWS, { query, limit });
+    const wanted = hits.searchNews.map((h) => h._id);
+    if (wanted.length === 0) return ok({ results: [] }, estimate);
+    const got = await ask<{ articlesForTopicsByIds: { articles: NewsArticleIn[] } }>(services.news.graphql, 'GetArticlesForTopicsByIds', ARTICLES_BY_IDS, { articleIds: wanted });
+    const byId = new Map(got.articlesForTopicsByIds.articles.map((a) => [a._id, a]));
+    return newsReply(wanted.flatMap((id) => (byId.has(id) ? newsOut(byId.get(id)!) : [])));
+  });
+
+  tool('latest_news', readOnly, async ({ country, limit, after }) => {
+    const got = await ask<{ articlesForCountry: { articles: NewsArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } }>(
+      services.news.graphql, 'GetArticlesForCountry', ARTICLES_FOR_COUNTRY, { countryCode: country ?? null, first: limit, after: after ?? null });
+    const { articles, pageInfo } = got.articlesForCountry;
+    return newsReply(articles.flatMap(newsOut), pageInfo.hasNextPage && pageInfo.endCursor ? { nextCursor: pageInfo.endCursor } : {});
   });
 
   const status = (s: PodStatus) => ok(s, estimate);

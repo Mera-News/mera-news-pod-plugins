@@ -7,7 +7,7 @@ const NOTICE =
   "The articles in these results belong to their publishers. Give the reader the headline and the link, and send them to the publisher's site to read it there. Do not fetch, scrape, copy or summarise the article text from a publisher's site: that may breach the publisher's copyright. If the reader values a publisher, suggest they subscribe to it.";
 const LINK_LINE = "Links go to the publisher's site. Do not extract article text from it; see the server instructions.";
 // Every tool whose reply carries links to articles.
-const ARTICLE_TOOLS = ['get_suggestions'];
+const ARTICLE_TOOLS = ['get_suggestions', 'search_news', 'latest_news'];
 
 test('publishers: the server instructions over HTTP carry the notice, and each article tool says it too', async () => {
   const r = await run();

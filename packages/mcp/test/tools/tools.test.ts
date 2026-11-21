@@ -4,16 +4,16 @@ import type { FactView } from 'mera-news-pod/plugin-api';
 import { instructions } from '../../src/text';
 import { deliveringSuggestions, estimate, fakeServices, json, pick, run, status } from './helpers';
 
-test('the server states its instructions, seven tools with annotations, and two prompts', async () => {
+test('the server states its instructions, nine tools with annotations, and two prompts', async () => {
   const r = await run();
   try {
     const c = await r.client();
     assert.equal(c.getInstructions(), instructions);
     const { tools } = await c.listTools();
     const by = Object.fromEntries(tools.map((t) => [t.name, t]));
-    assert.deepEqual(Object.keys(by).sort(), ['add_facts', 'edit_topics', 'get_profile', 'get_status', 'get_suggestions', 'remove_facts', 'set_reading']);
+    assert.deepEqual(Object.keys(by).sort(), ['add_facts', 'edit_topics', 'get_profile', 'get_status', 'get_suggestions', 'latest_news', 'remove_facts', 'search_news', 'set_reading']);
     const hints = (n: string) => by[n].annotations;
-    for (const n of ['get_profile', 'get_suggestions', 'get_status']) assert.deepEqual(hints(n), { readOnlyHint: true });
+    for (const n of ['get_profile', 'get_suggestions', 'get_status', 'search_news', 'latest_news']) assert.deepEqual(hints(n), { readOnlyHint: true });
     assert.deepEqual(hints('add_facts'), { readOnlyHint: false, destructiveHint: false });
     for (const n of ['remove_facts', 'edit_topics', 'set_reading']) assert.deepEqual(hints(n), { readOnlyHint: false, destructiveHint: true });
     assert.match(by.add_facts.description!, /^Save short facts about the person/);
