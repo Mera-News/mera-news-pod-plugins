@@ -9,10 +9,14 @@ A plugin for mera-news-pod that serves an MCP server, so an AI app can set up yo
 - `remove_facts`: removes saved facts and their topics.
 - `edit_topics`: removes a topic, or shows more or less of it.
 - `get_suggestions`: the new picks, each a headline with its link and a one-line reason. Each pick is handed out once.
+- `search_news`: searches the stored news by words and returns each match's headline, link, publisher, date and language, best first.
+- `latest_news`: the newest stored news, for one country (its three-letter code, such as `GBR`) or all, a page at a time.
 - `get_status`: what the pod is doing, when it reads next, and any problem with its fix.
 - `set_reading`: pauses or resumes reading, or changes how often the pod reads.
 
 It also offers two prompts: `set_up_profile` and `daily_digest`.
+
+`search_news` and `latest_news` need no AI service: a pod with no `ai` in its `pod.json` serves them and the profile tools, and makes no picks.
 
 ## Publishers' content
 
