@@ -14,6 +14,10 @@ A plugin for mera-news-pod that serves an MCP server, so an AI app can set up yo
 
 It also offers two prompts: `set_up_profile` and `daily_digest`.
 
+## Publishers' content
+
+Each pick links to an article on its publisher's site. The server tells the AI app that uses it to give you the headline and the link and send you to the publisher to read it, never to fetch, copy or summarise the article itself, since that may breach the publisher's copyright, and to suggest subscribing to publishers you value.
+
 ## Connect an MCP client
 
 Build the package (`npm install` at the root of mera-news-pod-plugins), then name it in the pod's `pod.json` and restart the pod:
