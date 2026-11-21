@@ -165,7 +165,36 @@ test('news tools: a large page stays under the reply cap', async () => {
   const body = JSON.parse(text);
   assert.ok(body.results.length > 0 && body.results.length < 25);
   assert.equal(body.results[0].title.length, 500);
-  // The server's cursor is the end of the whole page, so a cut page offers none and says to ask for fewer.
+  // A cut page still offers a cursor, from asking again for only the articles that fit.
   assert.equal(body.truncated, true);
-  assert.equal('nextCursor' in body, false);
+  assert.ok(body.nextCursor);
+});
+
+test('latest_news: a page cut to fit still continues, and paging returns every article exactly once', async () => {
+  // Long links make each result large, so a full page of 25 is far over the reply cap.
+  const all = Array.from({ length: 60 }, (_, i) => article(`a${String(i).padStart(2, '0')}`, { article_url: `https://news.example/${'x'.repeat(1900)}/${i}` }));
+  const { services } = stub((b) => {
+    const { first, after } = b.variables;
+    const start = after === null ? 0 : all.findIndex((a) => a._id === after) + 1;
+    const page = all.slice(start, start + first);
+    return { data: { articlesForCountry: { articles: page, pageInfo: { endCursor: page.at(-1)?._id ?? null, hasNextPage: start + page.length < all.length } } } };
+  });
+  const r = await run({ services });
+  try {
+    const c = await r.client();
+    const seen: string[] = [];
+    let after: string | undefined;
+    let cuts = 0;
+    for (let call = 0; call < 40; call++) {
+      const reply = json(await c.callTool({ name: 'latest_news', arguments: { limit: 25, ...(after ? { after } : {}) } }));
+      seen.push(...reply.results.map((x: { id: string }) => x.id));
+      if (reply.truncated) cuts++;
+      after = reply.nextCursor;
+      if (!after) break;
+    }
+    assert.ok(cuts > 0, 'the cap cut at least one page');
+    assert.deepEqual(seen, all.map((a) => a._id), 'every article once, in order');
+  } finally {
+    await r.stop();
+  }
 });

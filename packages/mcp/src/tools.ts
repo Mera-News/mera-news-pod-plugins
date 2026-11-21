@@ -107,7 +107,7 @@ async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationNam
   } catch {
     reply = { errors: [{}] };
   }
-  if (reply.errors?.length || !reply.data) {require('fs').writeFileSync('/tmp/dbg.txt', JSON.stringify(reply));
+  if (reply.errors?.length || !reply.data) {
     if (reply.errors?.[0]?.extensions?.code === 'BAD_USER_INPUT') throw new NewsError('bad_input', 'The field "after" is not valid for latest_news.', 'call latest_news again without "after"');
     throw new NewsError('news_unavailable', 'The news server could not answer.', 'try again later, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
   }
@@ -178,7 +178,7 @@ export function buildServer(ctx: PluginContext): McpServer {
     return ok({ ...got, picks: got.picks.map(pickOut) }, estimate);
   });
 
-  // Replies are cut to the target. A cut reply says so, and offers no cursor (the server's cursor ends the whole page).
+  // Replies are cut to the target, and a cut reply says so.
   const newsReply = (results: ReturnType<typeof newsOut>, extra: object = {}) => {
     const { kept, cut } = fit(results, (k, c) => ({ results: k, ...(c ? { truncated: true } : extra) }), estimate);
     return ok({ results: kept, ...(cut ? { truncated: true } : extra) }, estimate);
@@ -194,10 +194,19 @@ export function buildServer(ctx: PluginContext): McpServer {
   });
 
   tool('latest_news', readOnly, async ({ country, limit, after }) => {
-    const got = await ask<{ articlesForCountry: { articles: NewsArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } }>(
-      services.news.graphql, 'GetArticlesForCountry', ARTICLES_FOR_COUNTRY, { countryCode: country ?? null, first: limit, after: after ?? null });
-    const { articles, pageInfo } = got.articlesForCountry;
-    return newsReply(articles.flatMap(newsOut), pageInfo.hasNextPage && pageInfo.endCursor ? { nextCursor: pageInfo.endCursor } : {});
+    type Page = { articlesForCountry: { articles: NewsArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } };
+    const page = async (first: number) =>
+      (await ask<Page>(services.news.graphql, 'GetArticlesForCountry', ARTICLES_FOR_COUNTRY, { countryCode: country ?? null, first, after: after ?? null })).articlesForCountry;
+    const cursor = (p: Page['articlesForCountry']) => (p.pageInfo.hasNextPage && p.pageInfo.endCursor ? { nextCursor: p.pageInfo.endCursor } : {});
+    const got = await page(limit);
+    const out = got.articles.map(newsOut);
+    const results = out.flat();
+    const { kept, cut } = fit(results, (k, c) => ({ results: k, ...(c ? { truncated: true, nextCursor: '' } : cursor(got)) }), estimate);
+    if (!cut) return ok({ results: kept, ...cursor(got) }, estimate);
+    // The server's cursor ends its whole page, so ask again for only the articles that fit: its cursor then ends there.
+    let consumed = 0;
+    for (let n = 0; n < kept.length; consumed++) n += out[consumed].length;
+    return ok({ results: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
   });
 
   const status = (s: PodStatus) => ok(s, estimate);
