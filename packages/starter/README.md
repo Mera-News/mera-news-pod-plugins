@@ -16,6 +16,12 @@ It listens on `127.0.0.1` only. The port is `port` in the plugin's section of po
 
 The three routes need `Authorization: Bearer <token>`.
 
+## Publishers' content
+
+Show the headline and the link, and send the reader to the publisher's site. Do not fetch, scrape, copy or summarise article text from a publisher's site: that may breach the publisher's copyright. A plugin that helps readers subscribe to publishers they value is welcome.
+
+The page says so under the picks.
+
 ## The token
 
 The token is the file `token` in the plugin's data folder (`<home>/data/plugins/starter/token`). It is

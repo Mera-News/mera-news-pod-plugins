@@ -18,6 +18,7 @@ body{font:16px/1.4 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding
 li{margin:0 0 1rem;list-style:none}small{display:block;color:#666}ul{padding:0}
 </style></head><body>
 <h1>Your picks</h1><p id="note"></p><ul id="list"></ul>
+<p><small>These articles belong to their publishers. Read them on the publisher's site, and subscribe to the ones you value.</small></p>
 <script>
 const note = document.getElementById('note');
 const list = document.getElementById('list');

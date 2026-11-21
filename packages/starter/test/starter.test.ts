@@ -172,6 +172,7 @@ describe('the starter plugin', () => {
     // The only absolute URLs the page may name are the two schemes its link check looks for.
     assert.deepEqual(r.body.match(/https?:\/\/\S*/g)?.map((m) => m.slice(0, 8)) ?? [], []);
     for (const word of ['innerHTML', 'localStorage', 'sessionStorage', 'document.cookie']) assert.ok(!r.body.includes(word), word);
+    assert.ok(r.body.includes("These articles belong to their publishers. Read them on the publisher's site, and subscribe to the ones you value."), 'the publishers line');
   });
 
   it('describe: names the token file and never prints the token', async () => {
