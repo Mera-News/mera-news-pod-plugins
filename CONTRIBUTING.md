@@ -4,7 +4,7 @@ Bug reports, ideas and pull requests are welcome.
 
 - Open an issue first for anything larger than a small fix, so the direction is agreed before you
   write code.
-- Pull requests go to the `dev` branch.
+- Pull requests go to the `main` branch.
 - Run the checks in the README before you open one.
 
 ## Submitting a plugin

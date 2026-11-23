@@ -33,7 +33,7 @@ sends its profile to the pod.
 
 **Notifications on the phone are not available yet.**
 
-When `notify.meraNewsApp` is on in `pod.json`, the plugin shows new top stories on the paired phone through Mera's sign-in service. See [notifications on the phone](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/sync.md#notifications-on-the-phone) in the pod's docs for what Mera, Expo and Apple or Google receive.
+When `notify.meraNewsApp` is on in `pod.json`, the plugin shows new top stories on the paired phone through Mera's sign-in service. See [notifications on the phone](https://github.com/Mera-News/mera-news-pod/blob/main/docs/sync.md#notifications-on-the-phone) in the pod's docs for what Mera, Expo and Apple or Google receive.
 
 - The phone hands over its pass with `POST /push-pass` `{ "capability", "expiresAt" }`, and `{}` takes it back. The pass is kept in `push-pass.json`, readable only by you, and goes only to the origin in `pod.json`, over https. Revoking the phone deletes it, and so does starting the pod with the notifier off.
 - For a new `emergency` or `high` story, the plugin posts `{ "capability", "title", "pickId" }` to `/api/pod/notify` on that origin. `title` is the cleaned headline, at most 200 characters, and `pickId` is the story's id, which the app opens. A headline with a web address in it is skipped.

@@ -34,7 +34,7 @@ Build the package (`npm install` at the root of mera-news-pod-plugins), then nam
 
 It listens on `http://127.0.0.1:8787/mcp`. Settings in its `config`: `port` (default 8787), `host` (default `127.0.0.1`), `publicHost` for a name reached through a tunnel or reverse proxy, and `capabilityUrl` (off by default).
 
-A client that speaks MCP over HTTP connects to that address with the header `Authorization: Bearer <token>`. A client that only starts local servers uses the stdio bridge: `node build/bin/cli.js bridge --url http://127.0.0.1:8787/mcp`, with `--home <pod home>` when the pod does not use the default home. Setups for Claude Code, Claude Desktop and claude.ai are in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/dev/docs/clients.md).
+A client that speaks MCP over HTTP connects to that address with the header `Authorization: Bearer <token>`. A client that only starts local servers uses the stdio bridge: `node build/bin/cli.js bridge --url http://127.0.0.1:8787/mcp`, with `--home <pod home>` when the pod does not use the default home. Setups for Claude Code, Claude Desktop and claude.ai are in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/main/docs/clients.md).
 
 ## The token
 
