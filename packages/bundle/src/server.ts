@@ -124,4 +124,8 @@ async function main(): Promise<void> {
   await stop();
 }
 
-if (require.main === module) void main();
+// Always run: Claude Desktop starts this file in an Electron utility process, where require.main is not this module.
+main().catch((error) => {
+  console.error(`Mera News could not start: ${oneLine(error)}`);
+  process.exit(1);
+});
