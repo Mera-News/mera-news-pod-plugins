@@ -184,7 +184,7 @@ export default function FeedPage() {
         )}
       </TopBar>
 
-      {summary && (
+      {summary && summary.articles > 0 && (
         <div className="flex flex-col gap-1.5 px-7 pt-5">
           <p className="text-pretty text-muted-foreground tabular-nums">
             <span className="font-semibold text-foreground">{n(summary.articles)}</span> {summary.articles === 1 ? 'article' : 'articles'} matched your{' '}
@@ -222,7 +222,13 @@ export default function FeedPage() {
 
       {summary && summary.stories === 0 && state === 'end' ? (
         <Empty title="Nothing matched your topics yet">
-          <p>Mera News looks for news on each of your topics from the last {summary.windowHours} hours. Check again later, or add more facts on You.</p>
+          <p>
+            Mera News looked for news on your {plural(summary.topics.length, 'topic')} from the last {summary.windowHours} hours. Check again later, or add more facts on{' '}
+            <Link href="/you/" className="text-accent-foreground underline decoration-primary/60 underline-offset-[3px] hover:decoration-primary">
+              You
+            </Link>
+            .
+          </p>
         </Empty>
       ) : (
         <div

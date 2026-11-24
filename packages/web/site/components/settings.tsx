@@ -53,7 +53,7 @@ export function PodSection({ status }: { status: Status }) {
   // Fixes addressed to the assistant are for it to act on, not for this page.
   const problems = status.problems.filter((p) => p.who === 'person');
   return (
-    <Section id="pod" title="Mera News on this computer" lead="Mera Labs keeps no copy of your profile. It stays on this computer.">
+    <Section id="pod" title="Mera News on this computer" lead={`Mera Labs keeps no copy of your profile. It stays on this computer${status.ai ? ', and your AI service sees your facts to make topics and picks' : ''}.`}>
       <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-6 gap-y-3">
         <dt className="text-muted-foreground">Reading</dt>
         <dd>{readingLine(status)}</dd>
