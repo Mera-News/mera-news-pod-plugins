@@ -24,7 +24,7 @@
     "@anthropic-ai/mcpb": "2.1.2",
     "@types/node": "^26.6.6",
     "esbuild": "0.28.2",
-    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#86d04aae9870d4b4fbb2d315e5ca256ee6c25989",
+    "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#b19625e3b551c70dd4ed4a1ab4770cd4d14e350f",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "zod": "4.6.7"

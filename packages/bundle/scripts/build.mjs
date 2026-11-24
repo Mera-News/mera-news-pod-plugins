@@ -52,7 +52,21 @@ const notice = ([name, dir]) => {
 };
 const notices = [...packages].sort(([a], [b]) => a.localeCompare(b)).map(notice);
 // The website's packages never pass through esbuild: packages/web/notices.json lists what reaches the browser.
-const where = (name) => [path.join(web, 'node_modules', name), path.join(repo, 'node_modules', name)].find((d) => fs.existsSync(path.join(d, 'package.json')));
+// npm may nest a package under the one that needs it, so search every node_modules level, shallowest first.
+const where = (name) => {
+  const queue = [path.join(web, 'node_modules'), path.join(repo, 'node_modules')];
+  while (queue.length) {
+    const nm = queue.shift();
+    if (!fs.existsSync(nm)) continue;
+    const dir = path.join(nm, name);
+    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    for (const entry of fs.readdirSync(nm)) {
+      const dirs = entry.startsWith('@') ? fs.readdirSync(path.join(nm, entry)).map((s) => path.join(nm, entry, s)) : [path.join(nm, entry)];
+      for (const d of dirs) if (fs.existsSync(path.join(d, 'node_modules'))) queue.push(path.join(d, 'node_modules'));
+    }
+  }
+  return undefined;
+};
 const browser = JSON.parse(fs.readFileSync(path.join(web, 'notices.json'), 'utf8')).shipped.map((name) => {
   if (!where(name)) throw new Error(`${name} is listed in packages/web/notices.json but not installed.`);
   return notice([name, where(name)]);

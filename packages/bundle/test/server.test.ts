@@ -319,8 +319,22 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.deepEqual([...list.shipped.filter((n) => dev.includes(n)), ...list.buildOnly].sort(), dev);
     assert.deepEqual(list.buildOnly.filter((n) => list.shipped.includes(n)), []);
     // The rest are what a shipped package depends on, or a copy inside one.
+    // npm may nest a package under the one that needs it: search every node_modules level, shallowest first.
+    const find = (n: string): string | undefined => {
+      const queue = [path.join(repo, 'packages/web/node_modules'), path.join(repo, 'node_modules')];
+      while (queue.length) {
+        const nm = queue.shift()!;
+        if (!existsSync(nm)) continue;
+        if (existsSync(path.join(nm, n, 'package.json'))) return path.join(nm, n);
+        for (const e of readdirSync(nm)) {
+          const dirs = e.startsWith('@') ? readdirSync(path.join(nm, e)).map((s) => path.join(nm, e, s)) : [path.join(nm, e)];
+          for (const d of dirs) if (existsSync(path.join(d, 'node_modules'))) queue.push(path.join(d, 'node_modules'));
+        }
+      }
+      return undefined;
+    };
     const manifest = (n: string) => {
-      const dir = [path.join(repo, 'packages/web/node_modules', n), path.join(repo, 'node_modules', n)].find((d) => existsSync(path.join(d, 'package.json')));
+      const dir = find(n);
       assert.ok(dir, `${n} is installed`);
       return JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
     };
