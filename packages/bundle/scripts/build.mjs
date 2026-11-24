@@ -18,7 +18,8 @@ const dist = path.join(pkg, 'dist');
 const pluginDir = path.join(repo, 'plugins/mera-news');
 
 fs.rmSync(dist, { recursive: true, force: true });
-const common = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', logLevel: 'warning', legalComments: 'none' };
+// Minified (names kept, for readable errors): the plugin directory refuses any file over 5 MiB.
+const common = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', logLevel: 'warning', legalComments: 'none', minify: true, keepNames: true };
 const metas = [
   await build({ ...common, metafile: true, entryPoints: [path.join(pkg, 'src/server.ts')], outfile: path.join(dist, 'server.cjs') }),
   await build({ ...common, metafile: true, entryPoints: [path.join(repo, 'packages/mcp/src/index.ts')], outfile: path.join(dist, 'mcp-plugin.cjs') }),
