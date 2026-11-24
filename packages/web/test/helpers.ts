@@ -40,14 +40,14 @@ export interface Running {
 }
 
 /** The web plugin on fake services, serving the built export, on a free port. */
-export async function run(opts: { status?: () => Promise<PodStatus>; config?: object; before?: (dataDir: string) => void } = {}): Promise<Running> {
+export async function run(opts: { status?: () => Promise<PodStatus>; services?: Partial<PodServices>; config?: object; before?: (dataDir: string) => void } = {}): Promise<Running> {
   const home = mkdtempSync(path.join(os.tmpdir(), 'web-plugin-'));
   const dataDir = path.join(home, 'data', 'plugins', 'web');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   opts.before?.(dataDir);
   const logs: string[] = [];
   const log = (m: string) => void logs.push(m);
-  const services = { reading: { status: opts.status ?? (async () => STATUS) } } as unknown as PodServices;
+  const services = { reading: { status: opts.status ?? (async () => STATUS) }, ...opts.services } as unknown as PodServices;
   const ctx: PluginContext = { podApi: 2, meraNewsApp: null, services, config: { port: 0, ...opts.config }, dataDir, log: { debug: log, info: log, warn: log, error: log }, estimateTokens: (t) => t.length / 4 };
   const plugin = await createPlugin(ctx);
   await plugin.start();

@@ -78,6 +78,21 @@ async function readStatus(session: string): Promise<Connection> {
 const Context = createContext<Connection>({ kind: 'connecting' });
 export const useConnection = () => useContext(Context);
 
+/** A request the pod could not answer, in words the page can show: what happened and what to do. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public next: string,
+  ) {
+    super(message);
+  }
+}
+
+type Get = <T>(path: string) => Promise<T>;
+const ApiContext = createContext<Get>(() => Promise.reject(new ApiError('Not connected.', 'Reload the page.')));
+/** Reads one of the pod's JSON routes with this tab's session. */
+export const useApi = () => useContext(ApiContext);
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<Connection>({ kind: 'connecting' });
 
@@ -100,5 +115,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh]);
 
-  return <Context.Provider value={connection}>{children}</Context.Provider>;
+  const get = useCallback<Get>(async (path) => {
+    let res: Response;
+    try {
+      res = await fetch(path, { headers: { authorization: `Bearer ${stored.get() ?? ''}` } });
+    } catch {
+      throw new ApiError('Mera News is not running.', 'Open your AI app, or start your pod, then try again.');
+    }
+    if (res.status === 401) {
+      stored.set(null);
+      setConnection({ kind: 'ended' });
+      throw new ApiError('This page needs a new link.', 'Ask your assistant to open Mera News.');
+    }
+    const body = (await res.json().catch(() => null)) as { message?: unknown; next?: unknown } | null;
+    if (res.status === 400 && typeof body?.message === 'string' && typeof body.next === 'string') throw new ApiError(body.message, body.next);
+    if (!res.ok || body === null) throw new ApiError('Mera News could not answer.', 'Try again in a minute.');
+    return body as never;
+  }, []);
+
+  return (
+    <Context.Provider value={connection}>
+      <ApiContext.Provider value={get}>{children}</ApiContext.Provider>
+    </Context.Provider>
+  );
 }

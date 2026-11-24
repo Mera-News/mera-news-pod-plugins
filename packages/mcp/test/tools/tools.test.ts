@@ -4,16 +4,16 @@ import type { FactView } from 'mera-news-pod/plugin-api';
 import { instructions } from '../../src/text';
 import { deliveringSuggestions, DONE, estimate, fakeServices, json, pick, run, status } from './helpers';
 
-test('the server states its instructions, twelve tools with annotations, and two prompts', async () => {
+test('the server states its instructions, thirteen tools with annotations, and two prompts', async () => {
   const r = await run();
   try {
     const c = await r.client();
     assert.equal(c.getInstructions(), instructions);
     const { tools } = await c.listTools();
     const by = Object.fromEntries(tools.map((t) => [t.name, t]));
-    assert.deepEqual(Object.keys(by).sort(), ['add_facts', 'digest_done', 'edit_topics', 'get_profile', 'get_status', 'get_suggestions', 'latest_news', 'news_for_profile', 'open_news_site', 'remove_facts', 'search_news', 'set_reading']);
+    assert.deepEqual(Object.keys(by).sort(), ['add_facts', 'digest_done', 'edit_topics', 'get_profile', 'get_status', 'get_suggestions', 'latest_news', 'news_for_profile', 'open_news_site', 'remove_facts', 'search_news', 'set_reading', 'top_stories']);
     const hints = (n: string) => by[n].annotations;
-    for (const n of ['get_profile', 'get_suggestions', 'get_status', 'search_news', 'latest_news', 'open_news_site']) assert.deepEqual(hints(n), { readOnlyHint: true });
+    for (const n of ['get_profile', 'get_suggestions', 'get_status', 'search_news', 'latest_news', 'top_stories', 'open_news_site']) assert.deepEqual(hints(n), { readOnlyHint: true });
     // news_for_profile records what it showed, so a retried or speculative call would take stories.
     for (const n of ['add_facts', 'digest_done', 'news_for_profile']) assert.deepEqual(hints(n), { readOnlyHint: false, destructiveHint: false });
     for (const n of ['remove_facts', 'edit_topics', 'set_reading']) assert.deepEqual(hints(n), { readOnlyHint: false, destructiveHint: true });

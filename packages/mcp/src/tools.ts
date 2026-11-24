@@ -30,6 +30,11 @@ const schemas = {
     limit: z.number().int().min(1).max(25).default(10),
     after: z.string().min(1).max(200).optional(),
   }),
+  top_stories: z.object({
+    country: z.string().regex(/^[A-Z]{3}$/).optional(),
+    after: z.string().min(1).max(200).optional(),
+    story: z.string().min(1).max(100).optional(),
+  }),
   news_for_profile: z.object({ limit: z.number().int().min(1).max(25).default(15) }),
   get_status: z.object({}),
   set_reading: z.object({
@@ -97,6 +102,12 @@ interface NewsArticleIn {
   publication_name?: string | null;
   publicationSource?: { publication_name?: string | null } | null;
 }
+
+const TOP_STORIES = `query GetTopHeadlinesForCountry($countryCode: String, $first: Int, $after: String) { topHeadlinesForCountry(countryCode: $countryCode, first: $first, after: $after) { headlines { clusterSize article { ${ARTICLE_FIELDS} } } pageInfo { endCursor hasNextPage } } }`;
+const STORY_REPORTS = `query GetNewsClusterForArticle($articleId: ID!, $first: Int, $after: String) { newsClusterForArticle(articleId: $articleId) { clusterSize articles(first: $first, after: $after) { articles { ${ARTICLE_FIELDS} } pageInfo { endCursor hasNextPage } } } }`;
+/** Stories per top_stories page, and reports listed per story in one reply. */
+const STORIES_PER_PAGE = 10;
+const REPORTS_PER_STORY = 25;
 
 const CLUSTERS = `query ClusterMembershipsForArticles($articleIds: [ID!]!) { clusterMembershipsForArticles(articleIds: $articleIds) { articleId clusters { clusterId stableClusterId confidence } } }`;
 
@@ -342,6 +353,54 @@ export function buildServer(ctx: McpContext): McpServer {
     let consumed = 0;
     for (let n = 0; n < kept.length; consumed++) n += out[consumed].length;
     return ok({ results: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
+  });
+
+  type ReportsPage = { newsClusterForArticle: { clusterSize?: number | null; articles: { articles: NewsArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } } | null };
+  // A report is where a story was published: the publisher, its link and its language.
+  const reportsOf = async (articleId: string, after: string | null) => {
+    const got = (await ask<ReportsPage>(services.news.graphql, 'GetNewsClusterForArticle', STORY_REPORTS, { articleId, first: REPORTS_PER_STORY, after })).newsClusterForArticle;
+    const reports = (got?.articles.articles ?? []).flatMap(newsOut).map((r) => ({ publisher: r.publisher, link: r.link, language: r.language }));
+    const p = got?.articles.pageInfo;
+    return { count: got?.clusterSize ?? reports.length, reports, after: p?.hasNextPage && p.endCursor ? p.endCursor : null };
+  };
+  type Report = Awaited<ReturnType<typeof reportsOf>>['reports'][number];
+  const summary = (stories: { reportCount: number; reports: Report[] }[]) => ({
+    stories: stories.length,
+    reports: stories.reduce((n, s) => n + s.reportCount, 0),
+    publishers: new Set(stories.flatMap((s) => s.reports.map((r) => r.publisher))).size,
+    languages: new Set(stories.flatMap((s) => s.reports.map((r) => r.language))).size,
+  });
+
+  tool('top_stories', readOnly, async ({ country, after, story }) => {
+    if (story) {
+      const got = await reportsOf(story, after ?? null);
+      return ok({ story, reportCount: got.count, reports: got.reports, ...(got.after ? { nextCursor: got.after } : {}) }, estimate);
+    }
+    type Page = { topHeadlinesForCountry: { headlines: { clusterSize?: number | null; article: NewsArticleIn }[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } };
+    const page = async (first: number) =>
+      (await ask<Page>(services.news.graphql, 'GetTopHeadlinesForCountry', TOP_STORIES, { countryCode: country ?? null, first, after: after ?? null })).topHeadlinesForCountry;
+    const got = await page(STORIES_PER_PAGE);
+    // One entry per headline, empty when its link is unusable, so a cut can count headlines.
+    const out = await Promise.all(
+      got.headlines.map(async (h) => {
+        const [lead] = newsOut(h.article);
+        if (!lead) return [];
+        const listed = (h.clusterSize ?? 0) > 1 ? await reportsOf(lead.id, null) : { count: 1, reports: [], after: null };
+        const reports = listed.reports.length ? listed.reports : [{ publisher: lead.publisher, link: lead.link, language: lead.language }];
+        const reportCount = Math.max(h.clusterSize ?? 1, listed.count, reports.length);
+        const publishers = new Set(reports.map((r) => r.publisher)).size;
+        return [{ ...lead, reportCount, ...(listed.after ? {} : { publisherCount: publishers }), reports, ...(listed.after ? { moreReports: { story: lead.id, after: listed.after } } : {}) }];
+      }),
+    );
+    const stories = out.flat();
+    const cursor = (p: Page['topHeadlinesForCountry']) => (p.pageInfo.hasNextPage && p.pageInfo.endCursor ? { nextCursor: p.pageInfo.endCursor } : {});
+    const scope = { scope: country ?? 'world', windowHours: 24 };
+    const { kept, cut } = fit(stories, (k, c) => ({ ...scope, summary: summary(k), stories: k, ...(c ? { truncated: true, nextCursor: '' } : cursor(got)) }), estimate);
+    if (!cut) return ok({ ...scope, summary: summary(kept), stories: kept, ...cursor(got) }, estimate);
+    // The server's cursor ends its whole page, so ask again for only the stories that fit: its cursor then ends there.
+    let consumed = 0;
+    for (let n = 0; n < kept.length; consumed++) n += out[consumed].length;
+    return ok({ ...scope, summary: summary(kept), stories: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
   });
 
   // Not read-only: what it shows is recorded, and not shown again for 72 hours.

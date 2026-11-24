@@ -14,7 +14,7 @@ function ToggleGroupItem({ className, ...props }: TogglePrimitive.Props) {
     <TogglePrimitive
       data-slot="toggle-group-item"
       className={cn(
-        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] text-muted-foreground tabular-nums transition-colors outline-none select-none',
+        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] text-muted-foreground tabular-nums transition-colors outline-none select-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring',
         'hover:text-foreground data-[pressed]:border-primary data-[pressed]:text-accent-foreground',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,

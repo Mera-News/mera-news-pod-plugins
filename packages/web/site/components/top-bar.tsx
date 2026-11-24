@@ -20,3 +20,12 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
     </div>
   );
 }
+
+/** Under every list of news: whose articles these are. */
+export function PublisherLine() {
+  return (
+    <p className="mt-auto px-7 pt-10 pb-8 text-[12px] text-muted-foreground">
+      These articles belong to their publishers. Read them on the publisher&apos;s site, and subscribe to the ones you value.
+    </p>
+  );
+}

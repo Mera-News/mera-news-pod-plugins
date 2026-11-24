@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
 import { hostAllowed, originAllowed } from './guard';
 import { ADDRESS_FILE, checkCode, LINK_KEY_FILE } from './link';
+import { createCountries, NewsError, search, storyReports, topStories } from './news';
 import { loadSite, type SiteFile } from './site';
 
 export const podApi = 2 as const;
@@ -120,6 +121,23 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     return true;
   }
 
+  const services = (ctx as Extract<PluginContext, { podApi: 2 }>).services;
+  const countries = createCountries(services);
+  // Each argument is checked here; a bad one answers the pod's error shape with what to do.
+  const arg = (q: URLSearchParams, key: string, pattern: RegExp, fallback?: string) => {
+    const v = q.get(key) ?? fallback;
+    if (v === undefined || !pattern.test(v)) throw new NewsError('bad_input', `The "${key}" in this address is not valid.`, 'Go back to your news and try again.');
+    return v;
+  };
+  const cursor = (q: URLSearchParams) => (q.has('after') ? arg(q, 'after', /^[\w.:-]{1,200}$/) : null);
+  const routes: Record<string, (q: URLSearchParams) => Promise<unknown>> = {
+    '/api/status/': () => services.reading.status(),
+    '/api/countries/': () => countries(),
+    '/api/top/': (q) => topStories(services, arg(q, 'c', /^(GLOBAL|[A-Z]{3})$/, 'GLOBAL'), cursor(q)),
+    '/api/story/': (q) => storyReports(services, arg(q, 'id', /^[\w.:-]{1,100}$/), cursor(q)),
+    '/api/search/': (q) => search(services, arg(q, 'q', /^(?=[\s\S]*\S)[\s\S]{1,200}$/).trim()),
+  };
+
   async function api(req: http.IncomingMessage, res: http.ServerResponse, pathname: string) {
     if (pathname === '/api/session/') {
       if (req.method !== 'POST') return send(res, 405, { allow: 'POST' });
@@ -133,11 +151,13 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       const session = startSession(code);
       return session ? json(res, 200, { session }) : send(res, 401);
     }
-    if (pathname !== '/api/status/') return send(res, 404);
+    const route = routes[pathname];
+    if (!route) return send(res, 404);
     if (req.method !== 'GET') return send(res, 405, { allow: 'GET' });
     if (!sessionValid(req.headers.authorization)) return send(res, 401, { 'www-authenticate': 'Bearer realm="mera-news-pod"' });
+    const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
     try {
-      json(res, 200, await ctx.services.reading.status());
+      json(res, 200, await route(query));
     } catch (e) {
       const err = e as { code?: unknown; next?: unknown; message?: unknown };
       // The pod's own errors carry a code and a next step; show those as they are.
