@@ -119,6 +119,9 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.ok(!files.includes(KEY), 'the key is never written to disk');
     assert.equal(JSON.parse(readFileSync(path.join(home, 'pod.json'), 'utf8')).dataServer.url, data.origin);
     assert.equal(await s.close(), 0);
+    // After the close, so a failure leaves no server running. The extension page lists the manifest's tools: they are the tools the server serves.
+    const declared = (JSON.parse(readFileSync(path.join(pkg, 'manifest.json'), 'utf8')).tools as { name: string }[]).map((t) => t.name);
+    assert.deepEqual([...declared].sort(), [...tools].sort());
 
     // The lock went with the process: the next run starts its own pod again.
     const again = startServer(dir, home, { MERA_POD_DATA_API_KEY: KEY });

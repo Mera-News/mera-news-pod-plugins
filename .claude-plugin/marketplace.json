@@ -6,7 +6,7 @@
     {
       "name": "mera-news",
       "source": "./plugins/mera-news",
-      "description": "News picked for what you follow, from thousands of publishers in many languages. Your interests stay on your computer.",
+      "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests.",
       "category": "news",
       "tags": ["news", "headlines"]
     }

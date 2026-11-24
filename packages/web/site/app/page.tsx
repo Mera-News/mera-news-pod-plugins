@@ -129,7 +129,13 @@ export default function FeedPage() {
           <h1 className="text-[17px] font-semibold tracking-[-0.01em]">Your news</h1>
         </TopBar>
         <Empty title="Mera News has no profile for you yet">
-          <p>Ask your assistant to set up your news profile, or add a fact on You. Each fact about you gets its own lane of news here.</p>
+          <p>
+            Ask your assistant to set up your news profile, or add a fact on{' '}
+            <Link href="/you/" className="text-accent-foreground underline decoration-primary/60 underline-offset-[3px] hover:decoration-primary">
+              You
+            </Link>
+            . Each fact about you gets its own lane of news here.
+          </p>
         </Empty>
       </>
     );

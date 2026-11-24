@@ -463,9 +463,13 @@ export function buildServer(ctx: McpContext): McpServer {
   tool('rate_stories', writes, async ({ stories }) => {
     const result = await services.stories.judge(stories);
     const grounded = result.refused.filter((r) => r.code === 'reason_not_grounded');
-    const note = grounded.length
-      ? 'Some picks were not saved: their reason shares no word with the headline. Call rate_stories again for those with a reason that names something the headline says.'
-      : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its link and its reason.';
+    const gone = result.refused.some((r) => r.code === 'not_available') ? 'Stories refused as not_available were muted or already read: show them as left out and do not rate them again.' : '';
+    const note = [
+      grounded.length
+        ? 'Some picks were not saved: their reason shares no word with the headline. Call rate_stories again for those with a reason that names something the headline says.'
+        : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its link and its reason.',
+      gone,
+    ].filter(Boolean).join(' ');
     return ok({ ...result, note }, estimate);
   });
 

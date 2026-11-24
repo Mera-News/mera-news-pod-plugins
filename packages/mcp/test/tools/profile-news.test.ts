@@ -106,7 +106,7 @@ test('rate_stories: passes each verdict to the pod, and asks again for a pick wh
   const judged: unknown[] = [];
   const judge: PodServices['stories']['judge'] = async (v) => {
     judged.push(v);
-    return { saved: [{ id: 'a2', verdict: 'picked' }], already: [{ id: 'a3', verdict: 'left_out' }], refused: [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }] };
+    return { saved: [{ id: 'a2', verdict: 'picked' }], already: [{ id: 'a3', verdict: 'left_out' }], refused: [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }, { id: 'a5', code: 'not_available', message: 'Muted.' }] };
   };
   const r = await run({ services: fakeServices({ stories: { judge } }) });
   try {
@@ -118,8 +118,9 @@ test('rate_stories: passes each verdict to the pod, and asks again for a pick wh
     ];
     const res = json(await c.callTool({ name: 'rate_stories', arguments: { stories } }));
     assert.deepEqual(judged, [[{ id: 'a2', verdict: 'picked', level: 'high', reason: 'Your council votes.' }, stories[1], stories[2]]]);
-    assert.deepEqual(res.refused, [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }]);
+    assert.deepEqual(res.refused, [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }, { id: 'a5', code: 'not_available', message: 'Muted.' }]);
     assert.match(res.note, /Call rate_stories again for those/);
+    assert.match(res.note, /muted or already read: show them as left out and do not rate them again/);
     for (const bad of [{ stories: [] }, { stories: [{ id: 'a', verdict: 'maybe', reason: 'x' }] }, { stories: [{ id: 'a', verdict: 'picked', level: 'urgent', reason: 'x' }] }, { stories: Array(51).fill({ id: 'a', verdict: 'left_out', reason: 'x' }) }]) {
       assert.equal(json(await c.callTool({ name: 'rate_stories', arguments: bad })).code, 'bad_input');
     }

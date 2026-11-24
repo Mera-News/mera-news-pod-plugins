@@ -4,7 +4,7 @@ export const publisherNotice =
 const storyLine = 'A headline in another language also has title_en, its English translation. Results that share a story are reports of one event by different publishers: show them as one story with every publisher\'s link.';
 const linkLine = "Links go to the publisher's site. Do not extract article text from it; see the server instructions.";
 
-export const privacyLine = 'Mera Labs keeps no copy of your profile. It stays on this computer, and your assistant sees what you tell it.';
+export const privacyLine = 'Mera Labs keeps no copy of your profile. It stays on this computer, and your assistant sees what you tell it. If you add an AI service, that service sees your facts too.';
 
 // The topic review, in the instructions and in the set_up_profile prompt.
 const reviewLine =

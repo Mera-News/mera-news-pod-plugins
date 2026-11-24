@@ -258,7 +258,7 @@ export function AiServiceSection({ status, onSaved }: { status: Status; onSaved:
     <Section
       id="ai"
       title="AI service"
-      lead={status.ai ? 'Mera News makes topics and picks with it, even while your AI app is closed.' : 'None. Your assistant picks for you when you ask. Add an AI service to have Mera News pick while you are away.'}
+      lead={status.ai ? 'Mera News makes topics and picks with it while Mera News is running, without waiting for your assistant.' : 'None. Your assistant picks for you when you ask. Add an AI service to have Mera News pick while you are away.'}
     >
       {status.ai && (
         <p>
@@ -299,6 +299,7 @@ export function AiServiceSection({ status, onSaved }: { status: Status; onSaved:
               Kept on this computer and never shown again. Leave it empty to keep the saved key for the same address.
             </p>
           </div>
+          <p className="text-[13px] text-muted-foreground">Mera News sends your facts and the headlines it reads to this service to make topics and picks.</p>
           <Problem error={error} />
           <div className="flex gap-2">
             <Button type="submit" disabled={busy || !baseUrl.trim() || !model.trim()}>

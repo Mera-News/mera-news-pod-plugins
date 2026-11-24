@@ -44,7 +44,7 @@ function readDigest(file: string): Digest {
 }
 
 /** Written whole, by temp file and rename, the way the mcp plugin writes it. */
-function writeDigest(file: string, d: Digest) {
+function writeJson(file: string, d: unknown) {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
   fs.writeFileSync(tmp, `${JSON.stringify(d)}\n`, { mode: 0o600 });
   fs.renameSync(tmp, file);
@@ -53,6 +53,16 @@ function writeDigest(file: string, d: Digest) {
 export function createYou(services: PodServices, dataDir: string) {
   const mcpDir = path.join(dataDir, '..', 'mcp');
   const digestFile = path.join(mcpDir, 'digest.json');
+  // The assistant's session hint starts from the mcp plugin's hint.json, so an edit made here refreshes it. Counts only, the mcp plugin's shape.
+  const refreshHint = async () => {
+    if (!fs.existsSync(mcpDir)) return;
+    try {
+      const s = await services.reading.status();
+      writeJson(path.join(mcpDir, 'hint.json'), { facts: s.counts.facts, toReview: s.setup?.toReview.length ?? 0, findingTopics: s.setup?.findingTopics.length ?? 0, noTopics: s.setup?.noTopics.length ?? 0 });
+    } catch {
+      // The next status the assistant asks for writes it.
+    }
+  };
   const digestView = (d: Digest) => ({ times: d.times, everyMinutes: d.everyMinutes ?? null, assistant: fs.existsSync(mcpDir) });
 
   /** Every saved fact, every page, with only what the page shows. */
@@ -89,6 +99,7 @@ export function createYou(services: PodServices, dataDir: string) {
       const statement = typeof body.statement === 'string' ? body.statement.replace(/\s+/g, ' ').trim() : '';
       if (statement.length < 1 || statement.length > MAX_STATEMENT) throw bad(`A fact is 1 to ${MAX_STATEMENT} characters.`);
       const r = await services.profile.addFacts([statement]);
+      await refreshHint();
       const conflict = r.refused[0];
       const result = conflict ? 'conflict' : r.added[0]?.retried ? 'retried' : r.added.length ? 'added' : 'already';
       return { result, ...(conflict ? { conflictsWith: conflict.conflictsWith.statement } : {}), ...(r.localCoverageWeaker ? { localCoverageWeaker: true } : {}) };
@@ -96,6 +107,7 @@ export function createYou(services: PodServices, dataDir: string) {
     async '/api/facts/remove/'(body) {
       if (typeof body.id !== 'string' || !ID.test(body.id)) throw bad('This fact could not be found.');
       const r = await services.profile.removeFacts([body.id]);
+      await refreshHint();
       // Only whether it went: the reply never repeats the fact or its topics.
       return { removed: r.removed.length === 1 };
     },
@@ -104,6 +116,7 @@ export function createYou(services: PodServices, dataDir: string) {
       if (typeof factId !== 'string' || !ID.test(factId)) throw bad('This fact could not be found.');
       if (!Array.isArray(remove) || remove.length > 100 || !remove.every((id) => typeof id === 'string' && ID.test(id))) throw bad('These topics could not be found.');
       const r = await inSiteWords(() => services.profile.editTopics({ remove: remove as string[], reviewed: [factId] }));
+      await refreshHint();
       return { saved: true, notRemoved: r.results.filter((x) => !x.ok).length };
     },
     async '/api/digest/'(body) {
@@ -116,7 +129,7 @@ export function createYou(services: PodServices, dataDir: string) {
       // shortcut: a digest the assistant marks shown in the same instant can be counted as not shown; upgrade by moving the schedule into the pod if that is ever seen.
       const before = readDigest(digestFile);
       const next: Digest = { times: [...new Set(times as string[])].sort(), lastAt: before.lastAt ?? new Date().toISOString(), ...(everyMinutes ? { everyMinutes } : {}) };
-      writeDigest(digestFile, next);
+      writeJson(digestFile, next);
       return digestView(next);
     },
     async '/api/ai/'(body) {

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { FactView, PodServices, ProfileView } from 'mera-news-pod/plugin-api';
+import type { FactView, PodServices, PodStatus, ProfileView } from 'mera-news-pod/plugin-api';
 import { siteLink } from '../src/link';
-import { run, type Running } from './helpers';
+import { run, STATUS, type Running } from './helpers';
 
 const fact = (id: string, over: Partial<FactView> = {}): FactView => ({
   id,
@@ -234,4 +234,29 @@ test('nothing typed on the You page reaches the log, even when the pod fails on 
     assert.ok(r.logs.includes('A website request failed.'));
   });
   for (const line of r.logs) for (const secret of [...typed, 'Utrecht', 'sk-']) assert.ok(!line.includes(secret), line);
+});
+
+test('a change to the facts or their topics refreshes the session hint the assistant reads, with counts only', async () => {
+  let facts = 0;
+  let toReview: string[] = [];
+  const status = async () => ({ ...STATUS, counts: { ...STATUS.counts, facts }, ...(toReview.length ? { setup: { complete: false, findingTopics: [], toReview, noTopics: [] } } : {}) }) as PodStatus;
+  const services = {
+    reading: { status } as unknown as PodServices['reading'],
+    profile: {
+      addFacts: async () => ((facts = 1), (toReview = ['Lives in Utrecht']), { added: [{ id: '1', statement: 'Lives in Utrecht' }], already: [], refused: [] }),
+      editTopics: async () => ((toReview = []), { results: [] }),
+      removeFacts: async () => ((facts = 0), { removed: ['1'], notFound: [] }),
+    } as unknown as PodServices['profile'],
+  };
+  const { r, post } = await signedIn(services, withMcp);
+  await using(r, async () => {
+    const hint = () => JSON.parse(fs.readFileSync(path.join(r.dataDir, '..', 'mcp', 'hint.json'), 'utf8'));
+    await post('/api/facts/', { statement: 'Lives in Utrecht' });
+    assert.deepEqual(hint(), { facts: 1, toReview: 1, findingTopics: 0, noTopics: 0 });
+    assert.doesNotMatch(fs.readFileSync(path.join(r.dataDir, '..', 'mcp', 'hint.json'), 'utf8'), /Utrecht/);
+    await post('/api/topics/', { factId: '1', remove: [] });
+    assert.deepEqual(hint(), { facts: 1, toReview: 0, findingTopics: 0, noTopics: 0 });
+    await post('/api/facts/remove/', { id: '1' });
+    assert.deepEqual(hint(), { facts: 0, toReview: 0, findingTopics: 0, noTopics: 0 });
+  });
 });

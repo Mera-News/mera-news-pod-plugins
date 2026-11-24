@@ -28,7 +28,8 @@ tested by the community: open an issue with what you find.
 The first time, your assistant offers to set up your news profile: where you live, then your work,
 then the news you care about, one question at a time. You can skip any of them, and it reads each
 fact back and asks before saving it. Mera Labs keeps no copy of your profile. It stays on this
-computer, and your assistant sees what you tell it.
+computer, and your assistant sees what you tell it. If you add an AI service, that service sees
+your facts too.
 
 Without an AI service in the pod, your assistant writes the news topics for each fact and picks the
 stories itself from `news_for_profile`: it reads every page, then saves a verdict on each story with
