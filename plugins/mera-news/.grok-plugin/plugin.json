@@ -1,0 +1,11 @@
+{
+  "name": "mera-news",
+  "version": "0.1.0",
+  "description": "News picked for what you follow, from thousands of publishers in many languages. Your interests stay on your computer. Needs a key from Mera Labs.",
+  "author": { "name": "Mera Labs B.V.", "url": "https://mera.news" },
+  "homepage": "https://mera.news/self-host",
+  "repository": "https://github.com/Mera-News/mera-news-pod-plugins",
+  "license": "PolyForm-Shield-1.0.0",
+  "keywords": ["news", "headlines", "current events", "mera news"],
+  "logo": "assets/icon.png"
+}

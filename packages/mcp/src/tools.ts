@@ -77,14 +77,19 @@ interface NewsArticleIn {
   publicationSource?: { publication_name?: string | null } | null;
 }
 
+const CLUSTERS = `query ClusterMembershipsForArticles($articleIds: [ID!]!) { clusterMembershipsForArticles(articleIds: $articleIds) { articleId clusters { clusterId stableClusterId confidence } } }`;
+
 // Only the named fields leave, never a description or other article text. Text from a feed is capped.
 function newsOut(a: NewsArticleIn) {
   const link = a.article_url ?? '';
   if (!/^https?:\/\//.test(link)) return [];
+  const title = (a.title || a.title_en || '').slice(0, 500);
+  const titleEn = (a.title_en ?? '').slice(0, 500);
   return [
     {
       id: a._id,
-      title: (a.title || a.title_en || '').slice(0, 500),
+      title,
+      ...(titleEn && titleEn !== title ? { title_en: titleEn } : {}),
       link: link.slice(0, 2000),
       publisher: (a.publicationSource?.publication_name ?? a.publication_name ?? '').slice(0, 200),
       publishedAt: a.pubDate ?? '',
@@ -112,6 +117,33 @@ async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationNam
     throw new NewsError('news_unavailable', 'The news server could not answer.', 'try again later, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
   }
   return reply.data;
+}
+
+type NewsOut = ReturnType<typeof newsOut>[number] & { story?: string };
+
+/**
+ * Gives reports of one event in a reply the same `story`, from the news server's grouping (each
+ * article's most confident group). A server that does not group, or fails, leaves the list as it is.
+ */
+async function withStories(graphql: (body: unknown) => Promise<unknown>, results: NewsOut[]): Promise<NewsOut[]> {
+  if (results.length < 2) return results;
+  type Rows = { clusterMembershipsForArticles: { articleId: string; clusters: { clusterId: string; stableClusterId?: string | null; confidence: number }[] }[] };
+  let rows: Rows['clusterMembershipsForArticles'];
+  try {
+    rows = (await ask<Rows>(graphql, 'ClusterMembershipsForArticles', CLUSTERS, { articleIds: results.map((r) => r.id) })).clusterMembershipsForArticles;
+  } catch {
+    return results;
+  }
+  if (!Array.isArray(rows)) return results;
+  const storyOf = new Map<string, string>();
+  for (const row of rows) {
+    const best = (row.clusters ?? []).reduce<(typeof row.clusters)[number] | undefined>((a, c) => (!a || c.confidence > a.confidence ? c : a), undefined);
+    if (best) storyOf.set(row.articleId, String(best.stableClusterId ?? best.clusterId).slice(0, 100));
+  }
+  const size = new Map<string, number>();
+  for (const r of results) if (storyOf.has(r.id)) size.set(storyOf.get(r.id)!, (size.get(storyOf.get(r.id)!) ?? 0) + 1);
+  // Only a story with two or more reports in this reply is named: a story of one tells the reader nothing.
+  return results.map((r) => (size.get(storyOf.get(r.id) ?? '')! > 1 ? { ...r, story: storyOf.get(r.id)! } : r));
 }
 
 /** Room left in a reply for its state, hint, cursor and the like. */
@@ -179,7 +211,7 @@ export function buildServer(ctx: PluginContext): McpServer {
   });
 
   // Replies are cut to the target, and a cut reply says so.
-  const newsReply = (results: ReturnType<typeof newsOut>, extra: object = {}) => {
+  const newsReply = (results: NewsOut[], extra: object = {}) => {
     const { kept, cut } = fit(results, (k, c) => ({ results: k, ...(c ? { truncated: true } : extra) }), estimate);
     return ok({ results: kept, ...(cut ? { truncated: true } : extra) }, estimate);
   };
@@ -190,7 +222,7 @@ export function buildServer(ctx: PluginContext): McpServer {
     if (wanted.length === 0) return ok({ results: [] }, estimate);
     const got = await ask<{ articlesForTopicsByIds: { articles: NewsArticleIn[] } }>(services.news.graphql, 'GetArticlesForTopicsByIds', ARTICLES_BY_IDS, { articleIds: wanted });
     const byId = new Map(got.articlesForTopicsByIds.articles.map((a) => [a._id, a]));
-    return newsReply(wanted.flatMap((id) => (byId.has(id) ? newsOut(byId.get(id)!) : [])));
+    return newsReply(await withStories(services.news.graphql, wanted.flatMap((id) => (byId.has(id) ? newsOut(byId.get(id)!) : []))));
   });
 
   tool('latest_news', readOnly, async ({ country, limit, after }) => {
@@ -200,7 +232,7 @@ export function buildServer(ctx: PluginContext): McpServer {
     const cursor = (p: Page['articlesForCountry']) => (p.pageInfo.hasNextPage && p.pageInfo.endCursor ? { nextCursor: p.pageInfo.endCursor } : {});
     const got = await page(limit);
     const out = got.articles.map(newsOut);
-    const results = out.flat();
+    const results = await withStories(services.news.graphql, out.flat());
     const { kept, cut } = fit(results, (k, c) => ({ results: k, ...(c ? { truncated: true, nextCursor: '' } : cursor(got)) }), estimate);
     if (!cut) return ok({ results: kept, ...cursor(got) }, estimate);
     // The server's cursor ends its whole page, so ask again for only the articles that fit: its cursor then ends there.

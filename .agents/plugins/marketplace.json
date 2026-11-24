@@ -1,0 +1,12 @@
+{
+  "name": "mera-news",
+  "interface": { "displayName": "Mera News" },
+  "plugins": [
+    {
+      "name": "mera-news",
+      "source": { "source": "local", "path": "./plugins/mera-news" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

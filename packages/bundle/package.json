@@ -1,0 +1,11 @@
+{
+  "name": "mera-news-bundle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mera News for AI apps: the pod and its mcp plugin as one program, packed for each app's plugin format.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Mera Labs B.V.",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  }
+}

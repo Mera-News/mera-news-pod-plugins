@@ -56,3 +56,25 @@ jobs:
         run: >
           npx --yes license-checker-rseidelsohn@4.4.2 --production --excludePrivatePackages
           --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;Zlib;(MIT AND Zlib);CC0-1.0;BlueOak-1.0.0"
+
+  # A tag such as v0.1.0 publishes a release with the desktop extension (.mcpb) built from that commit.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Release with the extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" packages/bundle/dist/mera-news.mcpb --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

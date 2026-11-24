@@ -1,0 +1,14 @@
+{
+  "name": "mera-news",
+  "description": "Mera News for AI apps: news picked for what you follow.",
+  "owner": { "name": "Mera Labs B.V.", "url": "https://mera.news" },
+  "plugins": [
+    {
+      "name": "mera-news",
+      "source": "./plugins/mera-news",
+      "description": "News picked for what you follow, from thousands of publishers in many languages. Your interests stay on your computer.",
+      "category": "news",
+      "tags": ["news", "headlines"]
+    }
+  ]
+}

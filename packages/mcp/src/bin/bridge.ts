@@ -26,8 +26,8 @@ function sseMessages(text: string): unknown[] {
 }
 
 /** Relays newline-delimited JSON-RPC from stdin to the pod's HTTP endpoint and back to stdout. */
-export async function runBridge(opts: { url: string; home: string } & Partial<Streams>): Promise<void> {
-  const { stdin = process.stdin, stdout = process.stdout, stderr = process.stderr } = opts;
+export async function runBridge(opts: { url: string; home: string; fetchImpl?: typeof globalThis.fetch } & Partial<Streams>): Promise<void> {
+  const { stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, fetchImpl = globalThis.fetch } = opts;
   const send = (m: unknown) => stdout.write(`${JSON.stringify(m)}\n`);
 
   // One plain sentence on stderr, and a protocol error when the message expects an answer.
@@ -54,7 +54,7 @@ export async function runBridge(opts: { url: string; home: string } & Partial<St
     }
     let res: Response;
     try {
-      res = await fetch(opts.url, {
+      res = await fetchImpl(opts.url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

@@ -49,7 +49,7 @@ async function callWith(services: ReturnType<typeof fakeServices>, name: string,
   }
 }
 
-test('search_news: sends SearchNews then GetArticlesForTopicsByIds and returns only the five fields in rank order', async () => {
+test('search_news: sends SearchNews, GetArticlesForTopicsByIds and the story lookup, and returns only the named fields in rank order', async () => {
   const { calls, services } = stub((b) =>
     b.operationName === 'SearchNews'
       ? { data: { searchNews: [{ _id: 'b' }, { _id: 'gone' }, { _id: 'a' }] } }
@@ -57,12 +57,12 @@ test('search_news: sends SearchNews then GetArticlesForTopicsByIds and returns o
   );
   const res = await callWith(services, 'search_news', { query: '  tram  ', limit: 5 });
   assert.equal(res.isError, undefined);
-  assert.deepEqual(calls.map((c) => c.operationName), ['SearchNews', 'GetArticlesForTopicsByIds']);
+  assert.deepEqual(calls.map((c) => c.operationName), ['SearchNews', 'GetArticlesForTopicsByIds', 'ClusterMembershipsForArticles']);
   assert.deepEqual(calls[0].variables, { query: 'tram', limit: 5 });
   assert.deepEqual(calls[1].variables, { articleIds: ['b', 'gone', 'a'] });
   const body = json(res);
   assert.deepEqual(body.results.map((x: any) => x.title), ['Original title b', 'Original title a']);
-  assert.deepEqual(Object.keys(body.results[0]).sort(), ['id', 'language', 'link', 'publishedAt', 'publisher', 'title']);
+  assert.deepEqual(Object.keys(body.results[0]).sort(), ['id', 'language', 'link', 'publishedAt', 'publisher', 'title', 'title_en']);
   assert.equal(body.results[0].id, 'b');
   assert.equal(body.results[0].language, 'nl');
   assert.doesNotMatch(JSON.stringify(body), /SECRET|img\.example/);
@@ -197,4 +197,44 @@ test('latest_news: a page cut to fit still continues, and paging returns every a
   } finally {
     await r.stop();
   }
+});
+
+test('news tools: reports of one event share a story, and a headline in another language carries its English title', async () => {
+  const clusters = { a: 's-tram', b: 's-tram', c: 's-strike' };
+  const { calls, services } = stub((b) => {
+    if (b.operationName === 'ClusterMembershipsForArticles') {
+      return {
+        data: {
+          clusterMembershipsForArticles: (b.variables.articleIds as string[]).map((id) => ({
+            articleId: id,
+            clusters: [
+              { clusterId: `weak-${id}`, stableClusterId: null, confidence: 0.2 },
+              { clusterId: `c-${id}`, stableClusterId: clusters[id as keyof typeof clusters], confidence: 0.9 },
+            ],
+          })),
+        },
+      };
+    }
+    return { data: { articlesForCountry: { articles: [article('a'), article('b', { title_en: 'Original title b' }), article('c')], pageInfo: { hasNextPage: false } } } };
+  });
+  const body = json(await callWith(services, 'latest_news', {}));
+  assert.deepEqual(calls.map((c) => c.operationName), ['GetArticlesForCountry', 'ClusterMembershipsForArticles']);
+  assert.deepEqual(
+    body.results.map((x: any) => [x.id, x.story, x.title_en]),
+    [
+      ['a', 's-tram', 'English title a'],
+      ['b', 's-tram', undefined],
+      ['c', undefined, 'English title c'],
+    ],
+  );
+});
+
+test('news tools: a news server that cannot group still answers with the plain list', async () => {
+  const { services } = stub((b) =>
+    b.operationName === 'ClusterMembershipsForArticles'
+      ? { errors: [{ extensions: { code: 'NOT_IMPLEMENTED' } }] }
+      : { data: { articlesForCountry: { articles: [article('a'), article('b')], pageInfo: { hasNextPage: false } } } },
+  );
+  const body = json(await callWith(services, 'latest_news', {}));
+  assert.deepEqual(body.results.map((x: any) => [x.id, x.story]), [['a', undefined], ['b', undefined]]);
 });
