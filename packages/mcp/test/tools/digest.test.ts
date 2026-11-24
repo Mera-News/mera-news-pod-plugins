@@ -63,3 +63,15 @@ test('sessionHint: setup when no fact is known, the digest when one is due, else
   writeFileSync(path.join(dir, 'digest.json'), 'not json');
   assert.equal(sessionHint(dir), '', 'an unreadable schedule is no schedule');
 });
+
+test('sessionHint: topics waiting for review are offered, with a due digest too, from counts only', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mcp-hint-'));
+  writeFileSync(path.join(dir, 'hint.json'), '{"facts":2,"toReview":1,"findingTopics":0}');
+  assert.match(sessionHint(dir), /^Mera News setup is not finished: .*review.*get_profile\.$/);
+  writeFileSync(path.join(dir, 'hint.json'), '{"facts":2,"toReview":0,"findingTopics":1}');
+  assert.match(sessionHint(dir), /setup is not finished/);
+  writeFileSync(path.join(dir, 'digest.json'), JSON.stringify({ times: ['07:30'], lastAt: at(2026, 5, 9, 8, 0).toISOString() }));
+  assert.match(sessionHint(dir, at(2026, 5, 10, 8, 0)), /setup is not finished.* A Mera News digest is due\./);
+  writeFileSync(path.join(dir, 'hint.json'), '{"facts":2,"toReview":0,"findingTopics":0}');
+  assert.equal(sessionHint(dir, at(2026, 5, 9, 9, 0)), '', 'setup finished and no digest due');
+});

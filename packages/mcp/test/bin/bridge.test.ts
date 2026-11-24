@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fakeEndpoint, lines, runCli, tempHome, tokenFile } from './helpers';
+import { run as runPlugin } from '../tools/helpers';
 
 const TOKEN = 'tok-abc';
 const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
@@ -117,5 +118,32 @@ process.on('exit',()=>require('fs').writeFileSync(${JSON.stringify(log)},JSON.st
   const srcDir = path.resolve(__dirname, '../../src/bin');
   for (const f of readdirSync(srcDir)) {
     assert.doesNotMatch(readFileSync(path.join(srcDir, f), 'utf8'), /(from|require\()\s*['"]mera-news-(pod|client)['"/]/, f);
+  }
+});
+
+test('a request in the newer protocol revision reaches the tools through the bridge, not a 400', async () => {
+  // A newer client puts its protocol version in each request; over HTTP the server also wants it, and the method and name, as headers.
+  const meta = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': { name: 'test', version: '0' }, 'io.modelcontextprotocol/clientCapabilities': {} };
+  const r = await runPlugin();
+  try {
+    const messages = [
+      { jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: meta } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: meta } },
+      { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_status', arguments: {}, _meta: meta } },
+      { jsonrpc: '2.0', id: 4, method: 'ping' },
+      { jsonrpc: '2.0', id: 5, method: 'prompts/get', params: { name: 'set_up_profile', _meta: meta } },
+      // Not a prompt this server has: the name header is in base64, so the server's own answer comes back.
+      { jsonrpc: '2.0', id: 6, method: 'prompts/get', params: { name: ' caf\u00e9', _meta: meta } },
+    ];
+    const out = await runCli(['bridge', '--url', r.url, '--home', r.home], messages.map((m) => JSON.stringify(m)).join('\n') + '\n');
+    assert.equal(out.code, 0, out.stderr);
+    assert.equal(out.stderr, '');
+    const by = Object.fromEntries(lines(out.stdout).map((l) => JSON.parse(l)).map((m) => [m.id, m]));
+    for (const id of [1, 2, 3, 4, 5]) assert.ok(by[id]?.result, `request ${id}: ${JSON.stringify(by[id])}`);
+    assert.ok(by[6]?.error && !/status/.test(by[6].error.message), JSON.stringify(by[6]));
+    assert.ok(by[2].result.tools.some((t: { name: string }) => t.name === 'get_status'));
+    assert.equal(JSON.parse(by[3].result.content[0].text).counts.facts, 1);
+  } finally {
+    await r.stop();
   }
 });

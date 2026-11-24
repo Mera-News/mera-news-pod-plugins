@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FactView } from 'mera-news-pod/plugin-api';
 import { instructions } from '../../src/text';
-import { deliveringSuggestions, estimate, fakeServices, json, pick, run, status } from './helpers';
+import { deliveringSuggestions, DONE, estimate, fakeServices, json, pick, run, status } from './helpers';
 
 test('the server states its instructions, eleven tools with annotations, and two prompts', async () => {
   const r = await run();
@@ -31,7 +31,7 @@ test('each tool passes the service reply through in its documented shape', async
   const seen: Record<string, unknown> = {};
   const services = fakeServices({
     profile: {
-      get: async (o) => ((seen.get = o), { facts: [{ id: 'f1', statement: 'Lives in Utrecht', topicsStatus: 'done', addedAt: '2026-01-01T00:00:00.000Z', topics: [{ id: 't1', text: 'Utrecht', weight: 0, source: 'generated' }] }], nextOffset: 50 }),
+      get: async (o) => ((seen.get = o), { facts: [{ id: 'f1', statement: 'Lives in Utrecht', topicsStatus: 'done', addedAt: '2026-01-01T00:00:00.000Z', topics: [{ id: 't1', text: 'Utrecht', weight: 0, source: 'generated', reviewed: true }], needsReview: false }], nextOffset: 50, setup: DONE }),
       addFacts: async (s) => ((seen.add = s), { added: [{ id: 'f1', statement: s[0], retried: true }], already: [], refused: [{ statement: 'x', code: 'conflict', conflictsWith: { id: 'f9', statement: 'y' }, next: 'remove f9' }], localCoverageWeaker: true }),
       removeFacts: async (ids) => ((seen.remove = ids), { removed: [{ id: 'f1', statement: 's', topics: ['a'] }], notFound: ['zzz'] }),
       editTopics: async (e) => ((seen.edit = e), { results: [{ op: 'weight', index: 0, ok: true, id: 't1' }] }),
@@ -145,7 +145,8 @@ const bigFacts = (n: number, topicsEach: number): FactView[] =>
     statement: `A fact about the person, number ${i}, with some words in it`,
     topicsStatus: 'done',
     addedAt: '2026-01-01T00:00:00.000Z',
-    topics: Array.from({ length: topicsEach }, (_, j) => ({ id: `t-${i}-${j}`, text: `A topic about something, number ${i}.${j}`, weight: 0, source: 'generated' as const })),
+    topics: Array.from({ length: topicsEach }, (_, j) => ({ id: `t-${i}-${j}`, text: `A topic about something, number ${i}.${j}`, weight: 0, source: 'generated' as const, reviewed: true })),
+    needsReview: false,
   }));
 
 test('no reply is over the cap with 200 facts, 300 topics and 25 picks', async () => {
@@ -153,7 +154,7 @@ test('no reply is over the cap with 200 facts, 300 topics and 25 picks', async (
   assert.equal(facts.reduce((n, f) => n + f.topics.length, 0), 300);
   const picks = Array.from({ length: 25 }, (_, i) => ({ ...pick(i), reason: `${pick(i).reason} `.repeat(14) }));
   const services = fakeServices({
-    profile: { ...fakeServices().profile, get: async () => ({ facts, nextOffset: 200 }) },
+    profile: { ...fakeServices().profile, get: async () => ({ facts, nextOffset: 200, setup: DONE }) },
     suggestions: deliveringSuggestions(picks),
   });
   const r = await run({ services });
@@ -219,7 +220,7 @@ test('a pick far over the cap is still sent, with its text shortened so it fits'
 
 test('one fact with a huge topic list still fits', async () => {
   const [fact] = bigFacts(1, 3000);
-  const services = fakeServices({ profile: { ...fakeServices().profile, get: async () => ({ facts: [fact] }) } });
+  const services = fakeServices({ profile: { ...fakeServices().profile, get: async () => ({ facts: [fact], setup: DONE }) } });
   const r = await run({ services });
   try {
     const c = await r.client();

@@ -151,6 +151,19 @@ describe('the bundle, run as an AI app runs it', () => {
     const profile = await call('get_profile');
     assert.equal(profile.facts[0].topicsStatus, 'done');
     assert.deepEqual(profile.facts[0].topics.map((t: { text: string }) => t.text).sort(), ['Utrecht council', 'Utrecht trams']);
+    // Topics the assistant wrote still wait for the person to keep or remove them.
+    assert.deepEqual(profile.setup, { complete: false, findingTopics: [], toReview: ['Lives in Utrecht'], noTopics: [] });
+    assert.match(hint(), /^Mera News setup is not finished: .*get_profile\.\n$/);
+    assert.doesNotMatch(hint(), /Utrecht/);
+    const council = profile.facts[0].topics.find((t: { text: string }) => t.text === 'Utrecht council');
+    await call('edit_topics', { remove: [council.id], reviewed: [profile.facts[0].id] });
+    assert.equal((await call('get_profile')).setup.complete, true);
+    assert.equal((await call('get_status')).setup, undefined);
+    // A removed topic is not made again when the same topics come back.
+    await call('add_facts', { statements: [{ statement: 'Lives in Utrecht', topics: ['Utrecht trams', 'Utrecht council'] }] });
+    const reviewed = await call('get_profile');
+    assert.deepEqual(reviewed.facts[0].topics.map((t: { text: string }) => t.text), ['Utrecht trams']);
+    assert.equal(reviewed.setup.complete, true);
     const news = await call('news_for_profile');
     assert.deepEqual(news.groups.map((g: { fact: string; results: { title: string }[] }) => [g.fact, g.results.map((r) => r.title)]), [['Lives in Utrecht', ['Tram line approved']]]);
     assert.ok(!JSON.stringify(data.requests.map((r) => r.body)).includes('Lives in Utrecht'), 'a fact reached the news server');

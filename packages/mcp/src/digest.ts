@@ -10,7 +10,7 @@ export interface DigestSchedule {
 }
 
 export const DIGEST_FILE = 'digest.json';
-/** The number of saved facts, for the session hint, which must not start the pod to learn it. */
+/** Counts for the session hint, which must not start the pod to learn them. Never a fact statement. */
 export const HINT_FILE = 'hint.json';
 export const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -46,6 +46,17 @@ export function writeJson(file: string, value: unknown): void {
   fs.renameSync(tmp, file);
 }
 
+export interface Hint {
+  facts: number;
+  toReview?: number;
+  findingTopics?: number;
+}
+export const hintOf = (s: { counts: { facts: number }; setup?: { toReview: unknown[]; findingTopics: unknown[] } }): Hint => ({
+  facts: s.counts.facts,
+  toReview: s.setup?.toReview.length ?? 0,
+  findingTopics: s.setup?.findingTopics.length ?? 0,
+});
+
 const chains = new Map<string, Promise<unknown>>();
 /** Runs `fn` after every earlier call for the same file, so two requests never interleave a read and a write. */
 export function serially<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
@@ -62,13 +73,17 @@ export const mcpDataDir = (home: string) => path.join(home, 'data', 'plugins', '
  * Empty when there is nothing to offer.
  */
 export function sessionHint(dataDir: string, now = new Date()): string {
-  const hint = readJson<{ facts?: number }>(path.join(dataDir, HINT_FILE));
+  const hint = readJson<Hint>(path.join(dataDir, HINT_FILE));
   if (!hint || hint.facts === 0) {
     return 'Mera News has no profile for this person yet. When it fits, offer to set up their news profile with the set_up_profile prompt.';
   }
+  const lines: string[] = [];
+  if ((hint.toReview ?? 0) > 0 || (hint.findingTopics ?? 0) > 0) {
+    lines.push('Mera News setup is not finished: some news topics are waiting for the person to review. When it fits, offer once to show them, using get_profile.');
+  }
   const d = readJson<DigestSchedule>(path.join(dataDir, DIGEST_FILE));
   if (d && Array.isArray(d.times) && isDue(d, d.lastAt ? new Date(d.lastAt) : undefined, now)) {
-    return 'A Mera News digest is due. Offer to show it now with the daily_digest prompt.';
+    lines.push('A Mera News digest is due. Offer to show it now with the daily_digest prompt.');
   }
-  return '';
+  return lines.join(' ');
 }

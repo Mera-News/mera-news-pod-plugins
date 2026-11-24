@@ -153,7 +153,7 @@ describe('the pod with the mcp plugin, driven by an MCP client', () => {
     assert.equal(added.added.length, 2, JSON.stringify(added));
     facts = added.added;
     const both = await until('topics for both facts', 60_000, 2000, async () => {
-      const p = await profile();
+      const p = await call('get_profile', { waitSeconds: 45 });
       return p.facts.length === 2 && p.facts.every((f: { topics: unknown[] }) => f.topics.length > 0) && p;
     });
     const [kept, removed] = facts;
@@ -165,6 +165,22 @@ describe('the pod with the mcp plugin, driven by an MCP client', () => {
     assert.deepEqual(rest.facts.map((f: { id: string }) => f.id), [kept.id]);
     const left = rest.facts[0].topics.map((t: { text: string }) => t.text);
     for (const t of topicsOfRemoved) assert.ok(!left.includes(t), `topic "${t}" of the removed fact is still there`);
+  });
+
+  it('keeps setup open until the person reviewed the topics, and a topic they removed is not made again', async () => {
+    const [kept] = facts;
+    const before = await profile();
+    assert.deepEqual(before.setup, { complete: false, findingTopics: [], toReview: [kept.statement], noTopics: [] });
+    assert.equal((await status()).setup.complete, false);
+    const dropped = before.facts[0].topics.at(-1);
+    await call('edit_topics', { remove: [dropped.id], reviewed: [kept.id] });
+    const after = await profile();
+    assert.equal(after.setup.complete, true, JSON.stringify(after.setup));
+    assert.equal((await status()).setup, undefined);
+    await call('add_facts', { statements: [{ statement: kept.statement, topics: [dropped.text] }] });
+    const again = await profile();
+    assert.ok(!again.facts[0].topics.some((t: { text: string }) => t.text === dropped.text), `"${dropped.text}" came back`);
+    assert.equal(again.setup.complete, true);
   });
 
   it('returns new picks with a title, a link and a reason, then none the second time', async () => {

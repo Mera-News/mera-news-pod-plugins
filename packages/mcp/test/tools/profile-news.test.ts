@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { FactView } from 'mera-news-pod/plugin-api';
-import { estimate, fakeServices, json, run, status } from './helpers';
+import { DONE, estimate, fakeServices, json, run, status } from './helpers';
 
 type Body = { operationName: string; variables: Record<string, any> };
 
@@ -12,7 +12,8 @@ const fact = (id: string, statement: string, topics: string[]): FactView => ({
   statement,
   topicsStatus: 'done',
   addedAt: '2026-01-01T00:00:00.000Z',
-  topics: topics.map((text, i) => ({ id: `${id}-t${i}`, text, weight: 0, source: 'generated' as const })),
+  topics: topics.map((text, i) => ({ id: `${id}-t${i}`, text, weight: 0, source: 'generated' as const, reviewed: true })),
+  needsReview: false,
 });
 const FACTS = [fact('f1', 'Lives in Utrecht with two children', ['utrecht council', 'utrecht trams']), fact('f2', 'Works night shifts as a nurse', ['nurse pay', 'Utrecht Council'])];
 const ARTICLES: Record<string, string[]> = { 'utrecht council': ['a1', 'a2'], 'utrecht trams': ['a3', 'a1'], 'nurse pay': ['a4', 'a5', 'a6'] };
@@ -45,7 +46,7 @@ function newsServer(link = (id: string) => `https://news.example/${id}`) {
 
 test('news_for_profile: sends only topic texts, groups by fact, and never shows a story twice', async () => {
   const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: FACTS }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: FACTS, setup: DONE }) }, news }) });
   try {
     const c = await r.client();
     const first = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 4 } }));
@@ -82,7 +83,7 @@ test('news_for_profile: sends only topic texts, groups by fact, and never shows 
 
 test('news_for_profile: a story shown more than 72 hours ago may come back', async () => {
   const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f2', 'Works night shifts as a nurse', ['nurse pay'])] }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f2', 'Works night shifts as a nurse', ['nurse pay'])], setup: DONE }) }, news }) });
   try {
     const file = path.join(r.home, 'data', 'plugins', 'mcp', 'delivered.json');
     writeFileSync(file, JSON.stringify({ a4: Date.now() - 73 * 3600_000, a5: Date.now() - 71 * 3600_000 }));
@@ -99,7 +100,7 @@ test('news_for_profile: a reply cut to fit counts only what it carries as shown'
   const many = fact('f9', 'Follows the local news', ['local news']);
   ARTICLES['local news'] = Array.from({ length: 25 }, (_, i) => `b${i}`);
   const news = newsServer((id) => `https://news.example/${id}/${'x'.repeat(1900)}`);
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [many] }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [many], setup: DONE }) }, news }) });
   try {
     const c = await r.client();
     const ids: string[] = [];
@@ -122,7 +123,7 @@ test('news_for_profile: a reply cut to fit counts only what it carries as shown'
 test('news_for_profile: once a topic\'s first page was shown, the next call pages past it', async () => {
   ARTICLES['local news'] = Array.from({ length: 45 }, (_, i) => `c${i}`);
   const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f9', 'Follows the local news', ['local news'])] }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f9', 'Follows the local news', ['local news'])], setup: DONE }) }, news }) });
   try {
     const c = await r.client();
     const ids: string[] = [];
@@ -145,7 +146,7 @@ test('news_for_profile: the newest facts get stories on the first call, however 
   const facts = Array.from({ length: 10 }, (_, f) => fact(`f${f}`, `Fact number ${f}`, Array.from({ length: 6 }, (_, t) => `topic ${f}-${t}`)));
   for (const f of facts) for (const t of f.topics) ARTICLES[t.text] = [`${t.text}-a`, `${t.text}-b`];
   const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts, setup: DONE }) }, news }) });
   try {
     const c = await r.client();
     const got = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 10 } }));
@@ -159,7 +160,7 @@ test('news_for_profile: the newest facts get stories on the first call, however 
 
 test('news_for_profile: no topics yet asks for them, without a request', async () => {
   const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f1', 'Lives in Utrecht', [])] }) }, news }) });
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f1', 'Lives in Utrecht', [])], setup: DONE }) }, news }) });
   try {
     const c = await r.client();
     const got = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
@@ -197,8 +198,8 @@ test('add_facts: topics go to new and already saved facts, never to a refused on
     );
     assert.deepEqual(given, [['f1', ['Utrecht council', 'Utrecht trams']], ['f2', ['nurse pay']]]);
     assert.deepEqual(res.topics, [{ factId: 'f1', added: [{ id: 't0', text: 'Utrecht council' }, { id: 't1', text: 'Utrecht trams' }], skipped: [] }, { factId: 'f2', error: 'Topic 1 is longer than 80 characters.' }]);
-    assert.equal(res.note, 'Call get_profile to see the topics.');
-    assert.deepEqual(JSON.parse(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8')), { facts: 2 });
+    assert.equal(res.note, 'Saved. Call get_profile to see the topics.');
+    assert.deepEqual(JSON.parse(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8')), { facts: 2, toReview: 0, findingTopics: 0 });
 
     const bare = json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } }));
     assert.match(bare.note, /makes no topics on its own/, 'no AI service: the assistant is asked for topics');
@@ -273,7 +274,7 @@ test('the plugin notes the fact count at start for the session hint, without wai
     assert.ok(!existsSync(file), 'started before the status answered');
     answer();
     for (let i = 0; !existsSync(file) && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(readFileSync(file, 'utf8'), '{"facts":0}\n');
+    assert.equal(readFileSync(file, 'utf8'), '{"facts":0,"toReview":0,"findingTopics":0}\n');
   } finally {
     await r.stop();
   }

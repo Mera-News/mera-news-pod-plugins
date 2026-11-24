@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
 import { readToken, rotateToken } from './bin/token';
 import { hostAllowed, originAllowed, sameSecret } from './guard';
-import { HINT_FILE, writeJson } from './digest';
+import { HINT_FILE, hintOf, writeJson } from './digest';
 import { buildServer } from './tools';
 
 export const podApi = 2 as const;
@@ -97,7 +97,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       // Not awaited: the status waits on the data server, which would hold up the tools.
       void v2.services.reading
         .status()
-        .then((s) => writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: s.counts.facts }))
+        .then((s) => writeJson(path.join(ctx.dataDir, HINT_FILE), hintOf(s)))
         .catch(() => ctx.log.warn('The session hint file could not be written.'));
     },
     async stop() {

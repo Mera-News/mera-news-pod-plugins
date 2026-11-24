@@ -58,7 +58,7 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
   const calls: Calls = { snapshot: [], commands: [], reading: [], chat: [], graphql: [], readNow: 0, listeners: 0, notify: async (picks) => [...notifying].map((l) => l(picks)) };
   const services: PodServices = {
     profile: {
-      get: async () => ({ facts: [] }),
+      get: async () => ({ facts: [], setup: { complete: true, findingTopics: [], toReview: [], noTopics: [] } }),
       addFacts: async () => ({ added: [], already: [], refused: [] }),
       removeFacts: async () => ({ removed: [], notFound: [] }),
       editTopics: async () => ({ results: [] }),

@@ -25,6 +25,26 @@ function sseMessages(text: string): unknown[] {
     .map((data) => JSON.parse(data));
 }
 
+// Where the name header comes from, for the methods that have one.
+const NAME_FIELD: Record<string, string> = { 'tools/call': 'name', 'prompts/get': 'name', 'resources/read': 'uri', 'tasks/get': 'taskId', 'tasks/update': 'taskId', 'tasks/cancel': 'taskId' };
+
+/**
+ * A request in the 2026 protocol revision names its version in `params._meta`; over HTTP the server
+ * refuses it with a 400 unless the version, the method and the name also come as headers.
+ */
+function revisionHeaders(message: any): Record<string, string> {
+  const version = message?.params?._meta?.['io.modelcontextprotocol/protocolVersion'];
+  if (typeof version !== 'string' || typeof message.method !== 'string' || message.id === undefined) return {};
+  const headers: Record<string, string> = { 'mcp-protocol-version': version, 'mcp-method': message.method };
+  const name = message.params[NAME_FIELD[message.method]];
+  if (Object.hasOwn(NAME_FIELD, message.method) && typeof name === 'string') {
+    // Plain printable ASCII goes as it is; anything else as the spec's base64 form.
+    const plain = /^[\x21-\x7e](?:[\x20-\x7e]*[\x21-\x7e])?$/.test(name) && !/^=\?base64\?.*\?=$/.test(name);
+    headers['mcp-name'] = plain ? name : `=?base64?${Buffer.from(name, 'utf8').toString('base64')}?=`;
+  }
+  return headers;
+}
+
 /** Relays newline-delimited JSON-RPC from stdin to the pod's HTTP endpoint and back to stdout. */
 export async function runBridge(opts: { url: string; home: string; fetchImpl?: typeof globalThis.fetch } & Partial<Streams>): Promise<void> {
   const { stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, fetchImpl = globalThis.fetch } = opts;
@@ -60,6 +80,7 @@ export async function runBridge(opts: { url: string; home: string; fetchImpl?: t
           'content-type': 'application/json',
           accept: 'application/json, text/event-stream',
           authorization: `Bearer ${token}`,
+          ...revisionHeaders(message),
         },
         body: line,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

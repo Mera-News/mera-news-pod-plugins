@@ -1,8 +1,8 @@
 import { McpServer, type CallToolResult, type StandardSchemaWithJSON, type ToolAnnotations } from '@modelcontextprotocol/server';
 import path from 'node:path';
-import type { FactView, PickView, PluginContext, PodStatus } from 'mera-news-pod/plugin-api';
+import type { FactView, PickView, PluginContext, PodStatus, ProfileSetup, ProfileView } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
-import { DIGEST_FILE, HINT_FILE, isDue, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
+import { DIGEST_FILE, HINT_FILE, hintOf, isDue, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
 import { descriptions, instructions, prompts } from './text';
 
@@ -11,12 +11,13 @@ const statements = z.array(z.union([statement, z.object({ statement, topics: z.a
 const ids = z.array(z.string().min(1)).min(1).max(20);
 
 const schemas = {
-  get_profile: z.object({ offset: z.number().int().min(0).optional() }),
+  get_profile: z.object({ offset: z.number().int().min(0).optional(), waitSeconds: z.number().min(0).max(45).optional() }),
   add_facts: z.object({ statements }),
   remove_facts: z.object({ ids }),
   edit_topics: z.object({
     remove: z.array(z.string().min(1)).optional(),
     weight: z.array(z.object({ topicId: z.string().min(1), weight: z.number().min(-1).max(1) })).optional(),
+    reviewed: ids.optional(),
   }),
   get_suggestions: z.object({
     since: z.string().min(1).optional(),
@@ -169,6 +170,11 @@ async function withStories(graphql: (body: unknown) => Promise<unknown>, results
   return results.map((r) => (size.get(storyOf.get(r.id) ?? '')! > 1 ? { ...r, story: storyOf.get(r.id)! } : r));
 }
 
+// shortcut: each setup list is cut to 10 statements (one add_facts call) so a reply always fits; upgrade if people review more at once.
+const setupOut = (s: ProfileSetup): ProfileSetup => ({ ...s, findingTopics: s.findingTopics.slice(0, 10), toReview: s.toReview.slice(0, 10), noTopics: s.noTopics.slice(0, 10) });
+const stillFinding = (p: ProfileView) => p.setup.findingTopics.length > 0 || p.facts.some((f) => f.topicsStatus === 'pending');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Room left in a reply for its state, hint, cursor and the like. */
 const ENVELOPE_TOKENS = 400;
 
@@ -192,7 +198,7 @@ export function buildServer(ctx: McpContext): McpServer {
   // The session hint reads the fact count from this file, so it never has to start the pod.
   const noteFacts = (s: PodStatus) => {
     try {
-      writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: s.counts.facts });
+      writeJson(path.join(ctx.dataDir, HINT_FILE), hintOf(s));
     } catch {
       ctx.log.warn('The session hint file could not be written.');
     }
@@ -226,11 +232,17 @@ export function buildServer(ctx: McpContext): McpServer {
     });
   }
 
-  tool('get_profile', readOnly, async ({ offset }) => {
-    const profile = await services.profile.get(offset === undefined ? undefined : { offset });
+  tool('get_profile', readOnly, async ({ offset, waitSeconds }) => {
+    const read = () => services.profile.get(offset === undefined ? undefined : { offset });
+    let profile = await read();
+    // Lets the assistant show "Generating topics for:" and wait within one turn, under the bridge's minute.
+    for (const end = Date.now() + (waitSeconds ?? 0) * 1000; stillFinding(profile) && Date.now() < end; profile = await read()) {
+      await sleep(Math.min(1000, end - Date.now()));
+    }
     const base = offset ?? 0;
+    const setup = setupOut(profile.setup);
     const make = (facts: typeof profile.facts, cut: boolean) =>
-      cut ? { facts, nextOffset: base + facts.length, truncated: true } : { facts, ...(profile.nextOffset === undefined ? {} : { nextOffset: profile.nextOffset }) };
+      cut ? { facts, nextOffset: base + facts.length, truncated: true, setup } : { facts, ...(profile.nextOffset === undefined ? {} : { nextOffset: profile.nextOffset }), setup };
     let { kept, cut } = fit(profile.facts, make, estimate);
     if (cut && kept.length === 0 && profile.facts.length > 0) {
       // One fact with a huge topic list: show it with the topics that fit.
@@ -265,11 +277,14 @@ export function buildServer(ctx: McpContext): McpServer {
       }
     }
     const s = await statusAndHint();
+    const review = s?.setup
+      ? ' Setup is not finished: show the person each fact\'s topics, let them remove any they do not want, then call edit_topics with reviewed set to those fact ids. Save keeps every topic they did not remove.'
+      : '';
     const note = s?.ai
-      ? 'Topics are made from the saved facts within a minute or two. Call get_profile to see them.'
+      ? `Saved. Topics are made from the saved facts within a minute or two: call get_profile with waitSeconds to wait for them.${review}`
       : withTopics < saved.length
         ? 'This pod makes no topics on its own. Call add_facts again with the same statements and 4 to 8 news topics for each.'
-        : 'Call get_profile to see the topics.';
+        : `Saved.${review || ' Call get_profile to see the topics.'}`;
     return ok({ ...result, ...(topics.length ? { topics } : {}), note }, estimate);
   });
 
@@ -279,9 +294,11 @@ export function buildServer(ctx: McpContext): McpServer {
     return ok(removed, estimate);
   });
 
-  tool('edit_topics', destructive, async ({ remove, weight }) =>
-    ok(await services.profile.editTopics({ ...(remove ? { remove } : {}), ...(weight ? { weight } : {}) }), estimate),
-  );
+  tool('edit_topics', destructive, async ({ remove, weight, reviewed }) => {
+    const result = await services.profile.editTopics({ ...(remove ? { remove } : {}), ...(weight ? { weight } : {}), ...(reviewed ? { reviewed } : {}) });
+    if (reviewed) await statusAndHint();
+    return ok(result, estimate);
+  });
 
   tool('get_suggestions', readOnly, async ({ since, limit }) => {
     // The services cut the page until it fits and count only the picks returned as delivered.
@@ -392,7 +409,7 @@ export function buildServer(ctx: McpContext): McpServer {
     });
   });
 
-  const status = (s: PodStatus) => ok({ ...s, digest: digestView() }, estimate);
+  const status = (s: PodStatus) => ok({ ...s, ...(s.setup ? { setup: setupOut(s.setup) } : {}), digest: digestView() }, estimate);
   tool('get_status', readOnly, async () => {
     const s = await services.reading.status();
     noteFacts(s);

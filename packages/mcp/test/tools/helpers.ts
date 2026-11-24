@@ -3,10 +3,11 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import type { PodServices, PodStatus, PickView } from 'mera-news-pod/plugin-api';
+import type { PodServices, PodStatus, PickView, ProfileSetup } from 'mera-news-pod/plugin-api';
 import type { McpContext } from '../../src/tools';
 import { createPlugin } from '../../src';
 
+export const DONE: ProfileSetup = { complete: true, findingTopics: [], toReview: [], noTopics: [] };
 export const TOKEN = 'test-token-abcdefghijklmnopqrstuvwxyz0123456789';
 
 export const status = (over: Partial<PodStatus> = {}): PodStatus => ({
@@ -41,7 +42,7 @@ export const pick = (i: number): PickView => ({
 export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServices[K]> } = {}): PodServices {
   const base: PodServices = {
     profile: {
-      get: async () => ({ facts: [] }),
+      get: async () => ({ facts: [], setup: DONE }),
       addFacts: async (s) => ({ added: s.map((statement, i) => ({ id: `f${i}`, statement })), already: [], refused: [] }),
       removeFacts: async (ids) => ({ removed: ids.map((id) => ({ id, statement: 'x', topics: ['t'] })), notFound: [] }),
       editTopics: async (e) => ({ results: [...(e.remove ?? []).map((id, index) => ({ op: 'remove' as const, index, ok: true, id }))] }),
