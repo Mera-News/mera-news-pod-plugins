@@ -9,7 +9,11 @@
     "node": ">=22.13"
   },
   "workspaces": [
-    "packages/*"
+    "packages/mcp",
+    "packages/starter",
+    "packages/sync",
+    "packages/web",
+    "packages/bundle"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

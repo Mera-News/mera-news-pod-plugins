@@ -1,0 +1,32 @@
+{
+  "name": "mera-news-pod-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Mera News website for mera-news-pod: your news, top stories and your profile, served on this computer only.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Mera Labs B.V.",
+  "main": "build/index.js",
+  "bin": {
+    "mera-news-pod-web": "build/bin/cli.js"
+  },
+  "files": [
+    "build",
+    "site/out"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && NEXT_TELEMETRY_DISABLED=1 next build site"
+  },
+  "devDependencies": {
+    "@base-ui/react": "1.9.0",
+    "@tailwindcss/postcss": "4.3.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "cn": "0.5.2",
+    "lucide-react": "1.71.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwindcss": "4.3.5"
+  }
+}

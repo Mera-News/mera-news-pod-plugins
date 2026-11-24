@@ -36,6 +36,13 @@
       "description": "Ask Mera Labs for a key: message Mera on WhatsApp or write to contact@mera.news.",
       "sensitive": true,
       "required": true
+    },
+    "web": {
+      "type": "boolean",
+      "title": "Also run the Mera News website on this computer",
+      "description": "Shows your news, top stories and profile in your browser. Only this computer can open it.",
+      "default": true,
+      "required": false
     }
   },
   "mcpServers": {
@@ -45,7 +52,8 @@
         "${CLAUDE_PLUGIN_ROOT}/server/server.cjs"
       ],
       "env": {
-        "MERA_POD_DATA_API_KEY": "${user_config.api_key}"
+        "MERA_POD_DATA_API_KEY": "${user_config.api_key}",
+        "MERA_POD_WEB": "${user_config.web}"
       }
     }
   }

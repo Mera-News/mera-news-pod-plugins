@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -52,6 +53,33 @@ function startServer(dir: string, home: string, extraEnv: NodeJS.ProcessEnv) {
   };
 }
 
+const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+
+/** A copy of the bundle with the website, away from the repo. */
+function withWebsite(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-web-'));
+  for (const f of ['server.cjs', 'mcp-plugin.cjs', 'web-plugin.cjs']) copyFileSync(path.join(dist, f), path.join(dir, f));
+  cpSync(path.join(dist, 'web'), path.join(dir, 'web'), { recursive: true });
+  return dir;
+}
+
+/** The link open_news_site gives. */
+async function siteUrl(s: ReturnType<typeof startServer>): Promise<string> {
+  const r = await s.request('tools/call', { name: 'open_news_site', arguments: {} });
+  assert.ok(!r.result?.isError, `open_news_site: ${JSON.stringify(r)}\n${s.stderr()}`);
+  return JSON.parse(r.result.content[0].text).url;
+}
+
+/** Swaps a link's code for a session, as the page does. */
+const open = (origin: string, code: string) =>
+  fetch(`${origin}/api/session/`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ code }) });
+
+async function searchWorks(s: ReturnType<typeof startServer>) {
+  await connect(s);
+  const found = await s.request('tools/call', { name: 'search_news', arguments: { query: 'tram' } });
+  assert.match(JSON.stringify(found.result), /Tram line approved/, s.stderr());
+}
+
 async function connect(s: ReturnType<typeof startServer>) {
   const init = await s.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
   assert.ok(init.result, `initialize failed: ${init.error?.message}\n${s.stderr()}`);
@@ -67,7 +95,7 @@ describe('the bundle, run as an AI app runs it', () => {
   before(async () => {
     assert.ok(existsSync(path.join(dist, 'server.cjs')), 'run npm run build first');
     const built = statSync(path.join(dist, 'server.cjs')).mtimeMs;
-    const sources = Math.max(newest(path.join(pkg, 'src')), newest(path.join(repo, 'packages/mcp/src')));
+    const sources = Math.max(newest(path.join(pkg, 'src')), newest(path.join(repo, 'packages/mcp/src')), newest(path.join(repo, 'packages/web/src')));
     assert.ok(built >= sources, 'the bundle is older than its sources: run npm run build');
     // A copy away from the repo: the bundle must need no node_modules.
     dir = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-'));
@@ -175,11 +203,112 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.doesNotMatch(hint(), /Utrecht/);
   });
 
+  it('the website runs beside the tools, opens from open_news_site once per link, and goes when the setting says so', async () => {
+    const full = withWebsite();
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const env = { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY };
+    const s = startServer(full, home, env);
+    assert.ok((await connect(s)).includes('open_news_site'));
+    const plugins = () => JSON.parse(readFileSync(path.join(home, 'pod.json'), 'utf8')).plugins.map((p: { package: string }) => path.basename(p.package));
+    assert.deepEqual(plugins(), ['mcp-plugin.cjs', 'web-plugin.cjs']);
+    const url = await siteUrl(s);
+    const site = new URL(url);
+    const page = await fetch(site.origin + '/');
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self' 'sha256-/);
+    const code = site.hash.slice('#c='.length);
+    const session = await open(site.origin, code);
+    assert.equal(session.status, 200);
+    const { session: token } = (await session.json()) as { session: string };
+    const status = await fetch(`${site.origin}/api/status/`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(((await status.json()) as { dataServer: { host: string } }).dataServer.host, new URL(data.origin).host);
+    assert.equal((await open(site.origin, code)).status, 401, 'a link works once');
+    assert.equal(await s.close(), 0);
+
+    const off = startServer(full, home, { ...env, MERA_POD_WEB: 'false' });
+    await connect(off);
+    assert.deepEqual(plugins(), ['mcp-plugin.cjs']);
+    const refused = await off.request('tools/call', { name: 'open_news_site', arguments: {} });
+    assert.match(JSON.stringify(refused.result), /site_off/);
+    await assert.rejects(fetch(site.origin + '/'), 'the website stopped with its setting');
+    assert.equal(await off.close(), 0);
+  });
+
+  it('a busy website port, missing website files or a missing website plugin leave the tools working', async () => {
+    const full = withWebsite();
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const env = { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY };
+    const first = startServer(full, home, env);
+    await connect(first);
+    assert.equal(await first.close(), 0);
+    const webPort = JSON.parse(readFileSync(path.join(home, 'pod.json'), 'utf8')).plugins[1].config.port;
+
+    const blocker = net.createServer();
+    await new Promise<void>((resolve) => blocker.listen(webPort, '127.0.0.1', resolve));
+    try {
+      const busy = startServer(full, home, env);
+      await searchWorks(busy);
+      const moved = new URL(await siteUrl(busy));
+      assert.notEqual(Number(moved.port), webPort);
+      assert.equal((await fetch(moved.origin + '/')).status, 200);
+      assert.equal(await busy.close(), 0);
+    } finally {
+      blocker.close();
+    }
+
+    rmSync(path.join(full, 'web'), { recursive: true });
+    const noFiles = startServer(full, home, env);
+    await searchWorks(noFiles);
+    const down = new URL(await siteUrl(noFiles));
+    assert.equal((await fetch(down.origin + '/')).status, 503);
+    assert.match(noFiles.stderr(), /website files are missing/);
+    assert.equal(await noFiles.close(), 0);
+
+    rmSync(path.join(full, 'web-plugin.cjs'));
+    const noPlugin = startServer(full, home, env);
+    await searchWorks(noPlugin);
+    assert.equal(JSON.parse(readFileSync(path.join(home, 'pod.json'), 'utf8')).plugins.length, 1);
+    assert.equal(await noPlugin.close(), 0);
+  });
+
   it('the plugin folder carries this build', () => {
     // The marketplaces install from git, so the built files are committed; CI rebuilds and compares.
-    for (const f of ['server.cjs', 'mcp-plugin.cjs']) {
-      const committed = execFileSync('git', ['show', `HEAD:plugins/mera-news/server/${f}`], { cwd: repo, maxBuffer: 64e6 });
-      assert.ok(committed.equals(readFileSync(path.join(dist, f))), `plugins/mera-news/server/${f} is stale: run npm run build and commit it`);
+    const fresh = [...['server.cjs', 'mcp-plugin.cjs', 'web-plugin.cjs', 'THIRD-PARTY-NOTICES.txt'], ...files(path.join(dist, 'web')).map((f) => path.relative(dist, f))].sort();
+    const committed = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD', 'plugins/mera-news/server/'], { cwd: repo, encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((f) => f.slice('plugins/mera-news/server/'.length))
+      .sort();
+    assert.deepEqual(committed, fresh, 'plugins/mera-news/server is stale: run npm run build and commit it');
+    for (const f of fresh) {
+      const blob = execFileSync('git', ['show', `HEAD:plugins/mera-news/server/${f}`], { cwd: repo, maxBuffer: 64e6 });
+      assert.ok(blob.equals(readFileSync(path.join(dist, f))), `plugins/mera-news/server/${f} is stale: run npm run build and commit it`);
+      assert.ok(blob.length <= 5 * 1024 * 1024, `${f} is over the plugin directory's 5 MiB`);
+    }
+  });
+
+  it('the website notices name every package that reaches the browser', () => {
+    const list = JSON.parse(readFileSync(path.join(repo, 'packages/web/notices.json'), 'utf8')) as { shipped: string[]; buildOnly: string[] };
+    const webPkg = JSON.parse(readFileSync(path.join(repo, 'packages/web/package.json'), 'utf8'));
+    const dev = Object.keys(webPkg.devDependencies).sort();
+    assert.deepEqual(webPkg.dependencies, undefined, 'the website ships as files, so its packages are development ones');
+    // Each development package is either shipped to the browser or used only to build.
+    assert.deepEqual([...list.shipped.filter((n) => dev.includes(n)), ...list.buildOnly].sort(), dev);
+    assert.deepEqual(list.buildOnly.filter((n) => list.shipped.includes(n)), []);
+    // The rest are what a shipped package depends on, or a copy inside one.
+    const manifest = (n: string) => {
+      const dir = [path.join(repo, 'packages/web/node_modules', n), path.join(repo, 'node_modules', n)].find((d) => existsSync(path.join(d, 'package.json')));
+      assert.ok(dir, `${n} is installed`);
+      return JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    };
+    for (const n of list.shipped.filter((x) => !dev.includes(x))) {
+      const from = list.shipped.filter((p) => p !== n && (n.startsWith(`${p}/`) || n in (manifest(p).dependencies ?? {})));
+      assert.ok(from.length > 0, `${n} is listed but no shipped package brings it`);
+    }
+    const notices = readFileSync(path.join(dist, 'THIRD-PARTY-NOTICES.txt'), 'utf8');
+    for (const n of list.shipped) {
+      const { version } = manifest(n);
+      assert.ok(notices.includes(`\n${n}${version ? ` ${version}` : ''}\n`), `${n} is in the notices`);
     }
   });
 });

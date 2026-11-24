@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { FactView, PickView, PluginContext, PodStatus, ProfileSetup, ProfileView } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
 import { DIGEST_FILE, HINT_FILE, hintOf, isDue, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
+import { siteLink } from './link';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
 import { descriptions, instructions, prompts } from './text';
 
@@ -38,6 +39,7 @@ const schemas = {
     digestEveryMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   }),
   digest_done: z.object({}),
+  open_news_site: z.object({}),
 };
 
 /** The version 2 context: add_facts needs `profile.addTopics`. */
@@ -126,6 +128,9 @@ class NewsError extends Error {
 /** One news query. The store's own error text never reaches the reply. */
 const KEY_FIX =
   "ask the person to paste the key from Mera Labs into the Mera News extension or plugin settings in their AI app (for a pod they run themselves: dataApiKey in secrets.json in the pod's folder), then start a new conversation; never ask them to paste the key in the chat";
+
+const SITE_FIX =
+  'tell the person they can turn on "Also run the Mera News website on this computer" in the Mera News extension or plugin settings of their AI app, then restart the app; a person who runs their own pod adds the web plugin to pod.json and restarts it';
 
 async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationName: string, query: string, variables: object): Promise<T> {
   let reply: { data?: T; errors?: { extensions?: { code?: string } }[] };
@@ -428,6 +433,17 @@ export function buildServer(ctx: McpContext): McpServer {
     return status(Object.keys(change).length ? await services.reading.set(change) : await services.reading.status());
   });
   tool('digest_done', writes, async () => ok({ digest: await changeDigest((d) => ({ ...d, lastAt: new Date().toISOString() })) }, estimate));
+
+  // The web plugin's data folder sits beside this one; its address and key files exist only while it runs.
+  tool('open_news_site', readOnly, async () => {
+    let url: string;
+    try {
+      url = siteLink(path.join(ctx.dataDir, '..', 'web'));
+    } catch {
+      return fail('site_off', 'The Mera News website is not running on this computer.', SITE_FIX);
+    }
+    return ok({ url, label: 'Open in Mera News', note: 'The link works once and for 10 minutes.' }, estimate);
+  });
 
   for (const [name, p] of Object.entries(prompts)) {
     server.registerPrompt(name, { description: p.description }, () => ({

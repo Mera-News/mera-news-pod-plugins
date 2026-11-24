@@ -1,0 +1,23 @@
+{
+  "shipped": [
+    "@base-ui/react",
+    "@base-ui/utils",
+    "@floating-ui/utils",
+    "@swc/helpers",
+    "class-variance-authority",
+    "clsx",
+    "cn",
+    "lucide-react",
+    "next",
+    "next/dist/compiled/process",
+    "react",
+    "react-dom",
+    "scheduler",
+    "tailwindcss"
+  ],
+  "buildOnly": [
+    "@tailwindcss/postcss",
+    "@types/react",
+    "@types/react-dom"
+  ]
+}

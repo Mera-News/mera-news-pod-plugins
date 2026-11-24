@@ -57,7 +57,15 @@ Claude Code, choose "Always allow" for them, or add `mcp__plugin_mera-news_mera-
 `permissions.allow`; in Claude Desktop, set the Mera News tools to "Allow always" in the connector's
 settings.
 
-**What runs:** one process per app session: the pod and its MCP server, on `127.0.0.1` only. Your
+## The Mera News website
+
+The plugin also runs a website on this computer with your news, top stories and your profile. Ask
+your assistant to open Mera News: it gives you a link that works once, for 10 minutes, in one browser
+tab. Your assistant also offers the link when it shows you news. To turn the website off, untick
+"Also run the Mera News website on this computer" in the plugin's or extension's settings and restart
+the app.
+
+**What runs:** one process per app session: the pod, its MCP server and the website, on `127.0.0.1` only. Your
 profile and picks are in `~/.mera-news-pod`. If a pod already runs for that folder, the plugin
 connects to it instead of starting another.
 

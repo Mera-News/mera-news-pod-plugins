@@ -3,7 +3,6 @@
 // only MCP messages, so every log line goes to standard error, set before the pod loads.
 console.log = console.info = console.debug = console.error;
 
-import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,76 +10,11 @@ import type * as Embed from 'mera-news-pod/embed';
 // The bridge is bundled from source with this file, so the mcp package need not be built first.
 import { runBridge } from '../../mcp/src/bin/bridge';
 import { mcpDataDir, sessionHint } from '../../mcp/src/digest';
+import { ensureConfig } from './config';
 
-/** Mera News' own news server. A key from Mera Labs unlocks it. */
-export const MERA_NEWS_DATA_SERVER = 'https://api.mera.news';
-const PLUGIN_FILE = 'mcp-plugin.cjs';
 const START_TIMEOUT_MS = 30_000;
 
-interface PluginEntry {
-  package: string;
-  config?: { port?: number };
-}
-
 const oneLine = (error: unknown) => String((error as Error)?.message ?? error).split('\n')[0];
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as net.AddressInfo;
-      s.close(() => resolve(port));
-    });
-  });
-}
-
-const isMcp = (p: PluginEntry) => /(^|[\\/])(mcp|mera-news-pod-mcp|mcp-plugin\.cjs)[\\/]?$/.test(p.package);
-
-/**
- * Writes pod.json on the first run: Mera News' news server (or MERA_NEWS_DATA_SERVER_URL), no AI
- * service, and the bundled mcp plugin on a free loopback port. The key is never written: the app
- * hands it over as MERA_POD_DATA_API_KEY, or the person puts it in secrets.json. Later runs keep the
- * file and only move the bundled plugin's path, which changes when the app updates the plugin.
- * Returns the mcp plugin's port.
- */
-export async function ensureConfig(home: string, pluginFile: string, env: NodeJS.ProcessEnv = process.env): Promise<number> {
-  const file = path.join(home, 'pod.json');
-  const ours = async (): Promise<PluginEntry> => ({ package: pluginFile, config: { port: await freePort() } });
-  if (!fs.existsSync(file)) {
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    const locale = new Intl.Locale(Intl.DateTimeFormat().resolvedOptions().locale);
-    const entry = await ours();
-    const config = {
-      dataServer: { url: env.MERA_NEWS_DATA_SERVER_URL || MERA_NEWS_DATA_SERVER },
-      reading: { everyMinutes: 15 },
-      language: locale.language,
-      ...(locale.region ? { region: locale.region } : {}),
-      plugins: [entry],
-    };
-    fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    const secrets = path.join(home, 'secrets.json');
-    if (!fs.existsSync(secrets)) fs.writeFileSync(secrets, '{}\n', { mode: 0o600 });
-    return entry.config!.port!;
-  }
-  const config = JSON.parse(fs.readFileSync(file, 'utf8')) as { plugins?: PluginEntry[] };
-  const plugins = Array.isArray(config.plugins) ? config.plugins : [];
-  let entry = plugins.find(isMcp);
-  let changed = false;
-  if (!entry) {
-    entry = await ours();
-    plugins.push(entry);
-    changed = true;
-  } else if (entry.package.endsWith(PLUGIN_FILE) && entry.package !== pluginFile) {
-    entry.package = pluginFile;
-    changed = true;
-  }
-  if (changed) {
-    config.plugins = plugins;
-    fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  }
-  return entry.config?.port ?? 8787;
-}
 
 async function listening(port: number, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
@@ -104,7 +38,7 @@ async function main(): Promise<void> {
   const direct = globalThis.fetch;
   const pod = require('mera-news-pod/embed') as typeof Embed;
   const home = pod.podHome();
-  const port = await ensureConfig(home, path.join(__dirname, PLUGIN_FILE));
+  const port = await ensureConfig(home, __dirname);
 
   let running: Embed.Pod | undefined;
   try {

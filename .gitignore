@@ -5,3 +5,6 @@ coverage/
 .env*
 .DS_Store
 packages/bundle/dist/
+packages/web/site/.next/
+packages/web/site/out/
+packages/web/site/next-env.d.ts
