@@ -11,6 +11,7 @@ import { hostAllowed, originAllowed } from './guard';
 import { ADDRESS_FILE, checkCode, LINK_KEY_FILE } from './link';
 import { createCountries, NewsError, search, storyReports, topStories } from './news';
 import { loadSite, type SiteFile } from './site';
+import { createYou } from './you';
 
 export const podApi = 2 as const;
 export const name = 'web';
@@ -123,6 +124,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
 
   const services = (ctx as Extract<PluginContext, { podApi: 2 }>).services;
   const countries = createCountries(services);
+  const you = createYou(services, ctx.dataDir);
   // Each argument is checked here; a bad one answers the pod's error shape with what to do.
   const arg = (q: URLSearchParams, key: string, pattern: RegExp, fallback?: string) => {
     const v = q.get(key) ?? fallback;
@@ -136,6 +138,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     '/api/top/': (q) => topStories(services, arg(q, 'c', /^(GLOBAL|[A-Z]{3})$/, 'GLOBAL'), cursor(q)),
     '/api/story/': (q) => storyReports(services, arg(q, 'id', /^[\w.:-]{1,100}$/), cursor(q)),
     '/api/search/': (q) => search(services, arg(q, 'q', /^(?=[\s\S]*\S)[\s\S]{1,200}$/).trim()),
+    ...you.reads,
   };
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, pathname: string) {
@@ -151,13 +154,26 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       const session = startSession(code);
       return session ? json(res, 200, { session }) : send(res, 401);
     }
-    const route = routes[pathname];
-    if (!route) return send(res, 404);
-    if (req.method !== 'GET') return send(res, 405, { allow: 'GET' });
+    const read = Object.hasOwn(routes, pathname) ? routes[pathname] : undefined;
+    const write = Object.hasOwn(you.writes, pathname) ? you.writes[pathname] : undefined;
+    if (!read && !write) return send(res, 404);
+    const allow = [read && 'GET', write && 'POST'].filter(Boolean).join(', ');
+    if ((req.method === 'POST' ? !write : !read) || req.method === 'HEAD') return send(res, 405, { allow });
     if (!sessionValid(req.headers.authorization)) return send(res, 401, { 'www-authenticate': 'Bearer realm="mera-news-pod"' });
-    const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
     try {
-      json(res, 200, await route(query));
+      if (req.method === 'POST') {
+        // The body is read only here, after the session, and never logged: it can hold a fact or a key.
+        let body: unknown;
+        try {
+          body = JSON.parse(await readBody(req));
+        } catch (e) {
+          if (e instanceof HttpError) return send(res, e.status, { connection: 'close' });
+          return json(res, 400, { error: 'bad_input' });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'bad_input' });
+        return json(res, 200, await write!(body as Record<string, unknown>));
+      }
+      json(res, 200, await read!(new URLSearchParams((req.url ?? '').split('?')[1] ?? '')));
     } catch (e) {
       const err = e as { code?: unknown; next?: unknown; message?: unknown };
       // The pod's own errors carry a code and a next step; show those as they are.

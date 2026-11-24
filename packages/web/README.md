@@ -3,8 +3,15 @@
 The Mera News website for your pod: your news, top stories and your profile, in your browser. The
 pod serves it on `127.0.0.1` only, so it opens on the computer the pod runs on and nowhere else.
 
-This first version is the frame of the site: Feed, World and You, and on You what the pod knows
-about you and how it reads. The news itself comes in the next versions.
+This version has World (top stories for the world or any country, and search) and You: your facts
+and their topics to keep or remove, when your assistant shows your digest, how the pod reads, and
+your own AI service. The Feed comes in the next version.
+
+## Your AI service
+
+On You you can add an OpenAI-compatible AI service: its address, model and key. The key is written
+to the pod's `secrets.json` and never shown again. The pod reads its AI service when it starts, so a
+new one runs after the pod restarts: quit and reopen your AI app, or restart your pod.
 
 ## Opening it
 

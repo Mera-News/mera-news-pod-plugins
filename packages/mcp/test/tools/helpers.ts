@@ -57,6 +57,7 @@ export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServi
       readNow: async () => 'ran',
     },
     // The mcp plugin uses none of these; they are part of what a version 2 plugin is given.
+    aiService: { set: async () => ({ set: true }) },
     model: { chatCompletions: async () => new Response('{}') },
     news: { graphql: async () => ({ data: null }) },
     commands: { run: async () => ({ results: [], snapshot: { schemaVersion: 0, registry: 0, tables: {} } }) },

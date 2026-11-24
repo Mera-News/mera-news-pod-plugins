@@ -3,6 +3,7 @@
 import { ChevronDown } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Heading } from '@/components/heading';
 import { PublisherLine, TopBar } from '@/components/top-bar';
 import { SearchField } from '@/components/search-field';
 import { ApiError, useApi } from '@/components/session';
@@ -74,28 +75,6 @@ function World() {
       {q ? <SearchResults key={q} q={q} /> : <TopStories key={scope} scope={scope} name={nameOf(scope)} />}
       <PublisherLine />
     </>
-  );
-}
-
-/** The heading over a list: what it is on the left, its numbers on the right. */
-function Heading({ id, title, lead, numbers }: { id: string; title: string; lead: ReactNode; numbers: [string, string][] }) {
-  return (
-    <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-4 px-7 pt-7 pb-5">
-      <div className="min-w-0">
-        <h1 id={id} className="text-[22px] leading-tight font-bold tracking-[-0.02em] text-balance">{title}</h1>
-        <p className="mt-1.5 max-w-[68ch] text-pretty text-muted-foreground">{lead}</p>
-      </div>
-      {numbers.length > 0 && (
-        <dl className="flex gap-8">
-          {numbers.map(([label, value]) => (
-            <div key={label} className="flex flex-col">
-              <dt className="text-[12px] text-muted-foreground">{label}</dt>
-              <dd className="text-[30px] leading-none font-bold tracking-[-0.02em] tabular-nums">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
   );
 }
 

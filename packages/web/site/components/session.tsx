@@ -1,13 +1,18 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 /** The part of the pod's status this site reads. */
 export interface Status {
   reading: 'on' | 'pausing' | 'paused';
   everyMinutes: number;
+  readingNow: boolean;
+  lastRunAt: string | null;
+  nextReadAt: string | null;
   counts: { facts: number; topics: number; topicsPending: number; picks: number };
+  problems: { code: string; who: 'assistant' | 'person'; fix: string }[];
   ai: { host: string; model: string } | null;
+  aiAfterRestart?: { host: string; model: string };
   dataServer: { host: string };
 }
 
@@ -89,9 +94,13 @@ export class ApiError extends Error {
 }
 
 type Get = <T>(path: string) => Promise<T>;
-const ApiContext = createContext<Get>(() => Promise.reject(new ApiError('Not connected.', 'Reload the page.')));
+type Post = <T>(path: string, body: object) => Promise<T>;
+const notConnected = () => Promise.reject(new ApiError('Not connected.', 'Reload the page.'));
+const ApiContext = createContext<{ get: Get; post: Post }>({ get: notConnected, post: notConnected });
 /** Reads one of the pod's JSON routes with this tab's session. */
-export const useApi = () => useContext(ApiContext);
+export const useApi = () => useContext(ApiContext).get;
+/** Sends a change to one of the pod's JSON routes with this tab's session. */
+export const usePost = () => useContext(ApiContext).post;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<Connection>({ kind: 'connecting' });
@@ -115,10 +124,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh]);
 
-  const get = useCallback<Get>(async (path) => {
+  const call = useCallback(async (path: string, body?: object) => {
     let res: Response;
     try {
-      res = await fetch(path, { headers: { authorization: `Bearer ${stored.get() ?? ''}` } });
+      res = await fetch(
+        path,
+        body
+          ? { method: 'POST', headers: { authorization: `Bearer ${stored.get() ?? ''}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }
+          : { headers: { authorization: `Bearer ${stored.get() ?? ''}` } },
+      );
     } catch {
       throw new ApiError('Mera News is not running.', 'Open your AI app, or start your pod, then try again.');
     }
@@ -127,15 +141,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setConnection({ kind: 'ended' });
       throw new ApiError('This page needs a new link.', 'Ask your assistant to open Mera News.');
     }
-    const body = (await res.json().catch(() => null)) as { message?: unknown; next?: unknown } | null;
-    if (res.status === 400 && typeof body?.message === 'string' && typeof body.next === 'string') throw new ApiError(body.message, body.next);
-    if (!res.ok || body === null) throw new ApiError('Mera News could not answer.', 'Try again in a minute.');
-    return body as never;
+    const reply = (await res.json().catch(() => null)) as { message?: unknown; next?: unknown } | null;
+    if (res.status === 400 && typeof reply?.message === 'string' && typeof reply.next === 'string') throw new ApiError(reply.message, reply.next);
+    if (!res.ok || reply === null) throw new ApiError('Mera News could not answer.', 'Try again in a minute.');
+    return reply as never;
   }, []);
+  const api = useMemo(() => ({ get: ((path) => call(path)) as Get, post: ((path, body) => call(path, body)) as Post }), [call]);
 
   return (
     <Context.Provider value={connection}>
-      <ApiContext.Provider value={get}>{children}</ApiContext.Provider>
+      <ApiContext.Provider value={api}>{children}</ApiContext.Provider>
     </Context.Provider>
   );
 }
