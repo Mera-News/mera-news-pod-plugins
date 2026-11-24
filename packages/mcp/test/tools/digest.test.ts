@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { isDue, sessionHint } from '../../src/digest';
+import { isDue, lastMoment, sessionHint } from '../../src/digest';
 
 const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi);
 
@@ -80,4 +80,13 @@ test('sessionHint: facts left with no topics keep setup open in the hint too', (
   const dir = mkdtempSync(path.join(os.tmpdir(), 'mcp-hint-'));
   writeFileSync(path.join(dir, 'hint.json'), '{"facts":1,"toReview":0,"findingTopics":0,"noTopics":1}');
   assert.match(sessionHint(dir), /^Mera News setup is not finished: .*get_profile\.$/);
+});
+
+test('lastMoment: the newest chosen time since the last digest, so a time long past with no digest reads as missed', () => {
+  const last = at(2026, 3, 1, 9);
+  assert.deepEqual(lastMoment({ times: ['08:00', '18:00'] }, last, at(2026, 3, 1, 17)), undefined, 'nothing chosen has come since');
+  assert.deepEqual(lastMoment({ times: ['08:00', '18:00'] }, last, at(2026, 3, 1, 19)), at(2026, 3, 1, 18));
+  assert.deepEqual(lastMoment({ times: ['08:00', '18:00'] }, last, at(2026, 3, 2, 9)), at(2026, 3, 2, 8));
+  assert.deepEqual(lastMoment({ times: [], everyMinutes: 30 }, last, at(2026, 3, 1, 10)), at(2026, 3, 1, 9, 30));
+  assert.equal(lastMoment({ times: ['08:00'] }, undefined, at(2026, 3, 1, 10)), undefined);
 });

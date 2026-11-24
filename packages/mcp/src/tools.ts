@@ -1,11 +1,11 @@
 import { McpServer, type CallToolResult, type StandardSchemaWithJSON, type ToolAnnotations } from '@modelcontextprotocol/server';
 import path from 'node:path';
-import type { FactView, PickView, PluginContext, PodStatus, ProfileSetup, ProfileView } from 'mera-news-pod/plugin-api';
+import type { PickView, PluginContext, PodStatus, ProfileSetup, ProfileStory, ProfileView, StoriesSummary } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
-import { DIGEST_FILE, HINT_FILE, hintOf, isDue, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
+import { DIGEST_FILE, HINT_FILE, hintOf, isDue, lastMoment, MISSED_AFTER_MS, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
 import { siteLink } from './link';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
-import { descriptions, instructions, prompts } from './text';
+import { descriptions, instructions, newsOnlyLine, prompts } from './text';
 
 const statement = z.string().min(1).max(300);
 const statements = z.array(z.union([statement, z.object({ statement, topics: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional() })])).min(1).max(10);
@@ -35,7 +35,20 @@ const schemas = {
     after: z.string().min(1).max(200).optional(),
     story: z.string().min(1).max(100).optional(),
   }),
-  news_for_profile: z.object({ limit: z.number().int().min(1).max(25).default(15) }),
+  news_for_profile: z.object({ after: z.string().min(1).max(40).optional(), limit: z.number().int().min(1).max(50).default(20) }),
+  rate_stories: z.object({
+    stories: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(100),
+          verdict: z.enum(['picked', 'left_out']),
+          level: z.enum(['emergency', 'high', 'medium', 'low']).optional(),
+          reason: z.string().trim().min(1).max(300),
+        }),
+      )
+      .min(1)
+      .max(50),
+  }),
   get_status: z.object({}),
   set_reading: z.object({
     paused: z.boolean().optional(),
@@ -49,13 +62,6 @@ const schemas = {
 
 /** The version 2 context: add_facts needs `profile.addTopics`. */
 export type McpContext = Extract<PluginContext, { podApi: 2 }>;
-
-const PERSONA = `query GetArticleIdsForPersona($query: PersonaQueryInput!) { articleIdsForPersona(query: $query) { topicResults { topicText articleIds hasNextPage nextCursor } } }`;
-/** Ids asked for per topic, and how many more pages news_for_profile may ask for topics it showed in full. */
-const PER_TOPIC = 20;
-const MORE_PAGES = 5;
-/** Stories news_for_profile showed are not shown again for this long. */
-const SHOWN_FOR_MS = 72 * 3600_000;
 
 
 const readOnly: ToolAnnotations = { readOnlyHint: true };
@@ -192,6 +198,41 @@ const setupOut = (s: ProfileSetup): ProfileSetup => ({ ...s, findingTopics: s.fi
 const stillFinding = (p: ProfileView) => p.setup.findingTopics.length > 0;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A page of news_for_profile: the run's summary numbers, the stories still to judge grouped by fact,
+ * and the stories judged before with their verdicts. Only the named fields leave.
+ */
+function profileNews(page: { run: string; summary: StoriesSummary; stories: ProfileStory[]; nextCursor?: string; shownBefore: number }) {
+  const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher });
+  const toJudge = new Map<string, { factId: string; fact: string; stories: object[] }>();
+  const picked: object[] = [];
+  const leftOut: object[] = [];
+  for (const s of page.stories) {
+    const facts = s.facts.map((f) => f.statement);
+    if (!s.verdict) {
+      const f = s.facts[0] ?? { id: '', statement: '' };
+      if (!toJudge.has(f.id)) toJudge.set(f.id, { factId: f.id, fact: f.statement, stories: [] });
+      toJudge.get(f.id)!.stories.push({ ...head(s), publishedAt: s.publishedAt, language: s.language, reports: s.reports, ...(facts.length > 1 ? { alsoFacts: facts.slice(1) } : {}) });
+    } else if (s.verdict.verdict === 'picked') picked.push({ ...head(s), level: s.verdict.level, reason: s.verdict.reason, facts });
+    else leftOut.push({ ...head(s), reason: s.verdict.reason, facts });
+  }
+  const { summary } = page;
+  const next = page.nextCursor
+    ? 'Read every page before you pick or answer: call news_for_profile again with after set to nextCursor.'
+    : summary.unjudged > 0
+      ? 'This is the last page. Judge every story in toJudge, on every page, with rate_stories: picked, with a level and one sentence on why it matters to the person, or left_out, with one short reason. Then show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its link and its reason.'
+      : 'This is the last page, and every story is judged. Show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its link and its reason.';
+  return {
+    summary,
+    toJudge: [...toJudge.values()],
+    picked,
+    leftOut,
+    ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+    ...(page.shownBefore ? { shownBefore: page.shownBefore } : {}),
+    next,
+  };
+}
+
 /** Room left in a reply for its state, hint, cursor and the like. */
 const ENVELOPE_TOKENS = 400;
 
@@ -201,10 +242,15 @@ const saysCode = (e: unknown): e is { code: string; message: string; next: strin
 export function buildServer(ctx: McpContext): McpServer {
   const { services, estimateTokens: estimate } = ctx;
   const digestFile = path.join(ctx.dataDir, DIGEST_FILE);
-  const shownFile = path.join(ctx.dataDir, 'delivered.json');
   const digestView = (d = readJson<DigestSchedule>(digestFile)) => {
     const times = Array.isArray(d?.times) ? d.times : [];
-    return { times, everyMinutes: d?.everyMinutes ?? null, due: isDue({ times, everyMinutes: d?.everyMinutes }, d?.lastAt ? new Date(d.lastAt) : undefined, new Date()) };
+    const schedule = { times, everyMinutes: d?.everyMinutes };
+    const lastAt = d?.lastAt ? new Date(d.lastAt) : undefined;
+    const now = new Date();
+    const moment = lastMoment(schedule, lastAt, now);
+    // A chosen time over an hour ago with no digest shown: most likely no scheduled task runs it.
+    const missed = !!moment && now.getTime() - moment.getTime() > MISSED_AFTER_MS;
+    return { times, everyMinutes: d?.everyMinutes ?? null, due: isDue(schedule, lastAt, now), ...(missed ? { missed: true } : {}) };
   };
   const changeDigest = (change: (d: DigestSchedule) => DigestSchedule) =>
     serially(digestFile, () => {
@@ -403,93 +449,53 @@ export function buildServer(ctx: McpContext): McpServer {
     return ok({ ...scope, summary: summary(kept), stories: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
   });
 
-  // Not read-only: what it shows is recorded, and not shown again for 72 hours.
-  tool('news_for_profile', writes, async ({ limit }) => {
-    const facts: FactView[] = [];
-    for (let offset: number | undefined = 0, pages = 0; offset !== undefined && pages < 20; pages++) {
-      const page = await services.profile.get(offset ? { offset } : undefined);
-      facts.push(...page.facts);
-      offset = page.nextOffset;
-    }
-    // Each topic text once, with the first fact it came from, one topic per fact in turn so the newest
-    // facts come as early as the oldest. Only these texts leave the computer.
-    const factOf = new Map<string, { fact: FactView; text: string }>();
-    for (let i = 0, more = true; more; i++) {
-      more = false;
-      for (const f of facts) {
-        const t = f.topics[i];
-        if (!t) continue;
-        more = true;
-        if (!factOf.has(t.text.trim().toLowerCase())) factOf.set(t.text.trim().toLowerCase(), { fact: f, text: t.text.trim() });
-      }
-    }
-    if (factOf.size === 0) {
-      const hint = facts.length ? 'The saved facts have no topics yet. Call add_facts again with the same statements and 4 to 8 news topics for each.' : 'Nothing is saved yet. Offer to set up the news profile.';
-      return ok({ groups: [], hint }, estimate);
-    }
-    const topics = [...factOf.values()].map((v) => v.text).slice(0, 200); // the server's limit per request
-    type TopicResult = { topicText: string; articleIds: string[]; hasNextPage?: boolean; nextCursor?: string | null };
-    // No total cap: the server would cut the last topics first, which are the newest facts'.
-    const persona = async (list: { text: string; afterCursor?: string }[]) =>
-      (await ask<{ articleIdsForPersona: { topicResults: TopicResult[] } }>(services.news.graphql, 'GetArticleIdsForPersona', PERSONA, { query: { limitPerTopic: PER_TOPIC, topics: list } })).articleIdsForPersona.topicResults;
-
-    return serially(shownFile, async () => {
-      const now = Date.now();
-      const shown = Object.fromEntries(Object.entries(readJson<Record<string, number>>(shownFile) ?? {}).filter(([, at]) => typeof at === 'number' && now - at < SHOWN_FOR_MS));
-      let lists = await persona(topics.map((text) => ({ text })));
-      // A topic's best matches stay on top for a day, so a topic whose page was all shown is asked for its next page.
-      for (let round = 0; round < MORE_PAGES; round++) {
-        const spent = lists.filter((l) => l.hasNextPage && l.nextCursor && l.articleIds.every((id) => shown[id]));
-        if (spent.length === 0) break;
-        const next = await persona(spent.map((l) => ({ text: l.topicText, afterCursor: l.nextCursor! })));
-        lists = lists.map((l) => (spent.includes(l) ? (next[spent.indexOf(l)] ?? { ...l, articleIds: [] }) : l));
-      }
-      // Round robin over the topics, so each one's best match comes before any topic's second.
-      const topicOf = new Map<string, string>();
-      for (let rank = 0; topicOf.size < limit && lists.some((l) => rank < l.articleIds.length); rank++) {
-        for (const l of lists) {
-          const id = l.articleIds[rank];
-          if (id && !shown[id] && !topicOf.has(id) && topicOf.size < limit) topicOf.set(id, l.topicText);
-        }
-      }
-      if (topicOf.size === 0) return ok({ groups: [], hint: 'No new stories since the last call. search_news finds more.' }, estimate);
-      const got = await ask<{ articlesForTopicsByIds: { articles: NewsArticleIn[] } }>(services.news.graphql, 'GetArticlesForTopicsByIds', ARTICLES_BY_IDS, { articleIds: [...topicOf.keys()] });
-      const byId = new Map(got.articlesForTopicsByIds.articles.map((a) => [a._id, a]));
-      const results = await withStories(services.news.graphql, [...topicOf.keys()].flatMap((id) => (byId.has(id) ? newsOut(byId.get(id)!) : [])));
-      const grouped = (kept: NewsOut[], cut: boolean) => {
-        const groups = new Map<string, { factId: string; fact: string; results: NewsOut[] }>();
-        for (const r of kept) {
-          const f = factOf.get((topicOf.get(r.id) ?? '').trim().toLowerCase())?.fact;
-          if (!f) continue;
-          if (!groups.has(f.id)) groups.set(f.id, { factId: f.id, fact: f.statement.slice(0, 300), results: [] });
-          groups.get(f.id)!.results.push(r);
-        }
-        return { groups: [...groups.values()], ...(cut ? { truncated: true } : {}) };
-      };
-      const { kept, cut } = fit(results, grouped, estimate);
-      // Only what is in the reply counts as shown.
-      for (const r of kept) shown[r.id] = now;
-      writeJson(shownFile, shown);
-      return ok(grouped(kept, cut), estimate);
+  // Not read-only: the unjudged stories it returns are recorded, and wait 72 hours before a later run returns them.
+  tool('news_for_profile', writes, async ({ after, limit }) => {
+    const page = await services.stories.forProfile({
+      ...(after ? { after } : {}),
+      limit,
+      // The services cut the page until the whole reply fits, and record only the stories returned.
+      fits: (stories, summary) => estimate(JSON.stringify(profileNews({ run: '', summary, stories, shownBefore: 0 }))) + ENVELOPE_TOKENS <= TARGET_TOKENS,
     });
+    return ok(profileNews(page), estimate);
   });
 
-  const status = (s: PodStatus) => ok({ ...s, ...(s.setup ? { setup: setupOut(s.setup) } : {}), digest: digestView() }, estimate);
+  tool('rate_stories', writes, async ({ stories }) => {
+    const result = await services.stories.judge(stories);
+    const grounded = result.refused.filter((r) => r.code === 'reason_not_grounded');
+    const note = grounded.length
+      ? 'Some picks were not saved: their reason shares no word with the headline. Call rate_stories again for those with a reason that names something the headline says.'
+      : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its link and its reason.';
+    return ok({ ...result, note }, estimate);
+  });
+
+  // A pod with no AI service reads only when asked, so it is never shown as paused.
+  const status = (s: PodStatus, extra: object = {}) =>
+    ok({ ...s, ...(s.ai ? {} : { reading: 'when_asked', readingNote: newsOnlyLine }), ...(s.setup ? { setup: setupOut(s.setup) } : {}), digest: digestView(), ...extra }, estimate);
   tool('get_status', readOnly, async () => {
     const s = await services.reading.status();
     noteFacts(s);
     return status(s);
   });
   tool('set_reading', destructive, async ({ paused, everyMinutes, digestTimes, digestEveryMinutes }) => {
+    let next: object = {};
     if (digestTimes !== undefined || digestEveryMinutes !== undefined) {
-      await changeDigest((d) => {
+      const d = await changeDigest((d) => {
         const next: DigestSchedule = { times: digestTimes ? [...new Set(digestTimes)].sort() : d.times, lastAt: d.lastAt ?? new Date().toISOString() };
         const every = digestEveryMinutes === undefined ? d.everyMinutes : (digestEveryMinutes ?? undefined);
         return every ? { ...next, everyMinutes: every } : next;
       });
+      const when = [...d.times, ...(d.everyMinutes ? [`every ${d.everyMinutes} minutes`] : [])];
+      // Choosing a time is the person's go-ahead for the scheduled task.
+      if (when.length) {
+        const said = when.join(' and ');
+        next = {
+          next: `If you can schedule tasks, create one now that runs the daily_digest prompt ${d.times.length ? 'at' : ''} ${said}, then tell the person: "Your news will come ${d.times.length ? 'at ' : ''}${said}. If this app is closed then, it comes when you next open it.", naming the AI app they use in place of "this app". If you cannot schedule tasks, tell them how to set one up.`.replace(/\s+/g, ' '),
+        };
+      }
     }
     const change = { ...(paused === undefined ? {} : { paused }), ...(everyMinutes === undefined ? {} : { everyMinutes }) };
-    return status(Object.keys(change).length ? await services.reading.set(change) : await services.reading.status());
+    return status(Object.keys(change).length ? await services.reading.set(change) : await services.reading.status(), next);
   });
   tool('digest_done', writes, async () => ok({ digest: await changeDigest((d) => ({ ...d, lastAt: new Date().toISOString() })) }, estimate));
 

@@ -39,6 +39,6 @@ test('open_news_site gives a one-time link signed with the key the running websi
 
 test('the assistant is told to offer the website after news and at first use', () => {
   assert.match(instructions, /The first time you help the person, and each time you show them news, offer it as a link named "Open in Mera News"/);
-  assert.match(prompts.daily_digest.text, /offer to open Mera News with open_news_site/);
+  assert.match(prompts.daily_digest.text, /the website as Open in Mera News with open_news_site/);
   for (const text of [instructions, prompts.daily_digest.text]) assert.doesNotMatch(text, /\u2014|\u2013/);
 });

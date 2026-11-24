@@ -11,16 +11,19 @@ A plugin for mera-news-pod that serves an MCP server, so an AI app can set up yo
 - `get_suggestions`: the new picks, each a headline with its link and a one-line reason. Each pick is handed out once.
 - `search_news`: searches the stored news by words and returns each match's headline, link, publisher, date and language, best first.
 - `latest_news`: the newest stored news, for one country (its three-letter code, such as `GBR`) or all, a page at a time.
-- `news_for_profile`: stories that match the topics of your facts, grouped by fact, each shown once (a story can come back after 72 hours). Only the topics go to the news server, never your facts. Your assistant picks from these when the pod makes no picks itself.
+- `news_for_profile`: every story from the last 48 hours that matches the topics of your facts, a page at a time, with reports of one event merged. Each page has the numbers (articles read, publishers, languages, matches per topic, duplicates merged, picked and left out), the stories nobody has judged yet by fact, and the ones judged before with their reasons. A story it returns unjudged waits 72 hours before it is returned again. Only the topics go to the news server, never your facts.
+- `rate_stories`: your assistant's verdict on stories from `news_for_profile`: picked, with a level and one sentence on why it matters to you, or left out, with a short reason. A story keeps its first verdict, so it is never judged twice. A pick becomes one of the pod's own picks, so `get_suggestions`, your notifications and the website show it.
+- `top_stories`: the most reported stories for the world or a country, each with every publisher's link.
+- `open_news_site`: a link that opens the Mera News website on this computer, once and for 10 minutes.
 - `get_status`: what the pod is doing, when it reads next, when your digest is due, and any problem with its fix.
 - `set_reading`: pauses or resumes reading, changes how often the pod reads, or sets when you want your digest: times of day, every so many minutes, or both.
 - `digest_done`: marks a digest as shown, so the next one is due at your next chosen time.
 
 It also offers two prompts: `set_up_profile` and `daily_digest`.
 
-`search_news`, `latest_news` and `news_for_profile` need no AI service: a pod with no `ai` in its `pod.json` serves them and the profile tools, and makes no picks of its own. Your assistant picks instead, when you ask or when your digest runs.
+`search_news`, `latest_news`, `top_stories`, `news_for_profile` and `rate_stories` need no AI service: a pod with no `ai` in its `pod.json` serves them and the profile tools, and makes no picks of its own. Your assistant picks instead, when you ask or when your digest runs.
 
-The digest schedule is in `digest.json` and the stories already shown in `delivered.json`, both in the plugin's data folder.
+The digest schedule is in `digest.json` in the plugin's data folder. The verdicts, and the stories already shown, are kept by the pod in `verdicts.json` in its data folder.
 
 ## Publishers' content
 

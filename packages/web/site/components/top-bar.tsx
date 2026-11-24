@@ -21,11 +21,11 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-/** Under every list of news: whose articles these are. */
+/** Under every list of news: whose articles these are, and where to read them. */
 export function PublisherLine() {
   return (
     <p className="mt-auto px-7 pt-10 pb-8 text-[12px] text-muted-foreground">
-      These articles belong to their publishers. Read them on the publisher&apos;s site, and subscribe to the ones you value.
+      Each article belongs to the publisher that reported it and is protected by copyright. It is meant to be read on the publisher&apos;s own site. Subscribe to the publishers you value.
     </p>
   );
 }

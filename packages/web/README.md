@@ -3,9 +3,15 @@
 The Mera News website for your pod: your news, top stories and your profile, in your browser. The
 pod serves it on `127.0.0.1` only, so it opens on the computer the pod runs on and nowhere else.
 
-This version has World (top stories for the world or any country, and search) and You: your facts
-and their topics to keep or remove, when your assistant shows your digest, how the pod reads, and
-your own AI service. The Feed comes in the next version.
+It has three pages:
+
+- Feed: one lane for each of your facts, with everything that matched it in the last 48 hours, what
+  was picked and why, and what was left out and why. A bar on each lane fills as your assistant or
+  the pod judges stories. Stories nobody has judged yet are marked "Not judged yet". The Feed only
+  shows stories: it never changes what your assistant is given next.
+- World: top stories for the world or any country, and search.
+- You: your facts and their topics to keep or remove, when your assistant shows your digest, how the
+  pod reads, and your own AI service.
 
 ## Your AI service
 
@@ -40,8 +46,9 @@ one and writes it to `address.json` in its data folder, where the link command r
 - The pages run only their own scripts. Publishers' images load over https; nothing else is
   fetched from another host.
 
-The site shows headlines and links to the publishers' sites. Articles belong to their publishers:
-read them on the publisher's site, and subscribe to the ones you value.
+The site shows headlines and links to the publishers' sites. Each article belongs to the publisher
+that reported it and is protected by copyright: read it on the publisher's own site, and subscribe to
+the ones you value.
 
 ## Building
 

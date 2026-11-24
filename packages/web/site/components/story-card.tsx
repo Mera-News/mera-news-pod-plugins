@@ -7,7 +7,7 @@ import { ApiError, useApi } from '@/components/session';
 import { age, languageLabel, plural, type Report, type Story } from '@/lib/news';
 
 /** Publisher, age and language, the line over every headline. */
-function Meta({ report, className }: { report: Report; className?: string }) {
+export function Meta({ report, className }: { report: Report; className?: string }) {
   const parts = [age(report.publishedAt), languageLabel(report.language)].filter(Boolean);
   return (
     <p className={className ?? 'truncate text-[12px] text-muted-foreground'}>
@@ -18,7 +18,7 @@ function Meta({ report, className }: { report: Report; className?: string }) {
 }
 
 /** The headline in English where there is a translation, with the original under it. */
-function Headline({ report, size }: { report: Report; size: 'card' | 'row' }) {
+export function Headline({ report, size }: { report: Report; size: 'card' | 'row' }) {
   const lang = report.language === 'und' ? undefined : report.language;
   const Wrap = size === 'card' ? 'h3' : 'p';
   return (

@@ -31,8 +31,9 @@ fact back and asks before saving it. Mera Labs keeps no copy of your profile. It
 computer, and your assistant sees what you tell it.
 
 Without an AI service in the pod, your assistant writes the news topics for each fact and picks the
-stories itself from `news_for_profile`, with a headline, a link and one sentence on why each one
-matters to you. No AI key is needed.
+stories itself from `news_for_profile`: it reads every page, then saves a verdict on each story with
+`rate_stories`, picked with one sentence on why it matters to you, or left out with a short reason.
+Its picks reach your notifications and the website like the pod's own. No AI key is needed.
 
 In Claude Code, the plugin's session start hook adds one sentence when there is no profile yet or a
 digest is due. It reads two small files in `~/.mera-news-pod/data/plugins/mcp` and never shows a fact.

@@ -31,6 +31,26 @@ export function isDue(schedule: Pick<DigestSchedule, 'times' | 'everyMinutes'>, 
   return false;
 }
 
+/**
+ * The latest scheduled moment at or before `now` after `lastAt`, or undefined. A digest is missed when
+ * that moment is over an hour old: a chosen time passed and nothing showed the digest.
+ */
+export function lastMoment(schedule: Pick<DigestSchedule, 'times' | 'everyMinutes'>, lastAt: Date | undefined, now: Date): Date | undefined {
+  if (!lastAt || Number.isNaN(lastAt.getTime())) return undefined;
+  const moments: Date[] = [];
+  if (schedule.everyMinutes) moments.push(new Date(lastAt.getTime() + schedule.everyMinutes * 60_000));
+  for (const t of schedule.times) {
+    if (!TIME.test(t)) continue;
+    const [h, m] = t.split(':').map(Number);
+    let at = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+    if (at > now) at = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, h, m);
+    moments.push(at);
+  }
+  return moments.filter((d) => d > lastAt && d <= now).sort((a, b) => b.getTime() - a.getTime())[0];
+}
+
+export const MISSED_AFTER_MS = 3600_000;
+
 export function readJson<T>(file: string): T | undefined {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as T;

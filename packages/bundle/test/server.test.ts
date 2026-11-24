@@ -193,8 +193,17 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.deepEqual(reviewed.facts[0].topics.map((t: { text: string }) => t.text), ['Utrecht trams']);
     assert.equal(reviewed.setup.complete, true);
     const news = await call('news_for_profile');
-    assert.deepEqual(news.groups.map((g: { fact: string; results: { title: string }[] }) => [g.fact, g.results.map((r) => r.title)]), [['Lives in Utrecht', ['Tram line approved']]]);
+    assert.deepEqual(news.toJudge.map((g: { fact: string; stories: { title: string }[] }) => [g.fact, g.stories.map((r) => r.title)]), [['Lives in Utrecht', ['Tram line approved']]]);
+    assert.deepEqual([news.summary.articles, news.summary.stories, news.summary.unjudged], [1, 1, 1]);
     assert.ok(!JSON.stringify(data.requests.map((r) => r.body)).includes('Lives in Utrecht'), 'a fact reached the news server');
+    // The assistant's pick becomes one of the pod's own: get_suggestions gives it, and it is never judged again.
+    const rated = await call('rate_stories', { stories: [{ id: 'a1', verdict: 'picked', level: 'high', reason: 'A tram line near your home was approved.' }] });
+    assert.deepEqual(rated.saved, [{ id: 'a1', verdict: 'picked' }], JSON.stringify(rated));
+    const picks = await call('get_suggestions');
+    assert.deepEqual(picks.picks.map((p: { title: string; level: string; facts: string[] }) => [p.title, p.level, p.facts]), [['Tram line approved', 'high', ['Lives in Utrecht']]]);
+    const after = await call('news_for_profile');
+    assert.deepEqual([after.toJudge, after.picked.map((p: { id: string; reason: string }) => [p.id, p.reason])], [[], [['a1', 'A tram line near your home was approved.']]]);
+    assert.equal((await call('rate_stories', { stories: [{ id: 'a1', verdict: 'left_out', reason: 'Changed my mind.' }] })).already[0].verdict, 'picked');
     assert.equal(await s.close(), 0);
 
     assert.equal(hint(), '', 'a profile and no digest due');
@@ -223,6 +232,17 @@ describe('the bundle, run as an AI app runs it', () => {
     const status = await fetch(`${site.origin}/api/status/`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(((await status.json()) as { dataServer: { host: string } }).dataServer.host, new URL(data.origin).host);
     assert.equal((await open(site.origin, code)).status, 401, 'a link works once');
+    // Viewing the Feed never takes a story from the assistant: the site reads with peek.
+    const tool = async (name: string, args: object = {}) => JSON.parse((await s.request('tools/call', { name, arguments: args })).result.content[0].text);
+    await tool('add_facts', { statements: [{ statement: 'Lives in Utrecht', topics: ['Utrecht trams'] }] });
+    const feed = async () => (await (await fetch(`${site.origin}/api/feed/`, { headers: { authorization: `Bearer ${token}` } })).json()) as { stories: { id: string; verdict?: unknown }[] };
+    assert.deepEqual((await feed()).stories.map((x) => x.id), ['a1']);
+    assert.deepEqual((await feed()).stories.map((x) => x.id), ['a1']);
+    const first = await tool('news_for_profile');
+    assert.deepEqual(first.toJudge.flatMap((g: { stories: { id: string }[] }) => g.stories.map((x) => x.id)), ['a1'], 'the site took nothing');
+    const second = await tool('news_for_profile');
+    assert.deepEqual([second.toJudge, second.shownBefore], [[], 1], 'the assistant\'s own read did');
+    assert.deepEqual((await feed()).stories.map((x) => x.id), ['a1'], 'the site still shows it');
     assert.equal(await s.close(), 0);
 
     const off = startServer(full, home, { ...env, MERA_POD_WEB: 'false' });

@@ -66,6 +66,7 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
     },
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
     aiService: { set: async () => ({ set: true }) },
+    stories: { forProfile: async () => Promise.reject(new Error('not used')), judge: async () => ({ saved: [], already: [], refused: [] }) },
     reading: {
       status: async () => status(),
       set: async (c) => (calls.reading.push(c), status({ reading: c.paused ? 'paused' : 'on' })),

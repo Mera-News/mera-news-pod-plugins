@@ -2,171 +2,135 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { FactView } from 'mera-news-pod/plugin-api';
-import { DONE, estimate, fakeServices, json, run, status } from './helpers';
+import type { PodServices, ProfileStory, StoriesSummary } from 'mera-news-pod/plugin-api';
+import { estimate, fakeServices, json, run, status } from './helpers';
 
-type Body = { operationName: string; variables: Record<string, any> };
-
-const fact = (id: string, statement: string, topics: string[]): FactView => ({
-  id,
-  statement,
-  topicsStatus: 'done',
-  addedAt: '2026-01-01T00:00:00.000Z',
-  topics: topics.map((text, i) => ({ id: `${id}-t${i}`, text, weight: 0, source: 'generated' as const, reviewed: true })),
-  needsReview: false,
+const summary = (over: Partial<StoriesSummary> = {}): StoriesSummary => ({
+  windowHours: 48,
+  articles: 5,
+  stories: 4,
+  merged: 1,
+  topics: [{ text: 'utrecht council', matches: 3 }, { text: 'nurse pay', matches: 2 }],
+  facts: [{ id: 'f1', statement: 'Lives in Utrecht', matched: 3, picked: 1, leftOut: 1 }, { id: 'f2', statement: 'Works as a nurse', matched: 1, picked: 0, leftOut: 0 }],
+  picked: 1,
+  leftOut: 1,
+  unjudged: 2,
+  publishers: 3,
+  languages: 2,
+  complete: true,
+  ...over,
 });
-const FACTS = [fact('f1', 'Lives in Utrecht with two children', ['utrecht council', 'utrecht trams']), fact('f2', 'Works night shifts as a nurse', ['nurse pay', 'Utrecht Council'])];
-const ARTICLES: Record<string, string[]> = { 'utrecht council': ['a1', 'a2'], 'utrecht trams': ['a3', 'a1'], 'nurse pay': ['a4', 'a5', 'a6'] };
+const story = (id: string, over: Partial<ProfileStory> = {}): ProfileStory => ({
+  id,
+  story: `s:${id}`,
+  title: `Verhaal ${id}`,
+  titleEn: `Story ${id}`,
+  link: `https://news.example/${id}`,
+  publisher: 'De Krant',
+  publishedAt: '2026-01-01T00:00:00.000Z',
+  language: 'nl',
+  image: `https://img.example/${id}.jpg`,
+  reports: 2,
+  facts: [{ id: 'f1', statement: 'Lives in Utrecht' }],
+  topics: ['utrecht council'],
+  ...over,
+});
+const STORIES = [
+  story('a1', { verdict: { verdict: 'picked', level: 'high', reason: 'Utrecht council votes on your street.', by: 'assistant', at: '2026-01-01T00:00:00.000Z' } }),
+  story('a2'),
+  story('a3', { verdict: { verdict: 'left_out', reason: 'A council far from you.', by: 'assistant' } }),
+  story('a4', { facts: [{ id: 'f2', statement: 'Works as a nurse' }, { id: 'f1', statement: 'Lives in Utrecht' }] }),
+];
 
-/** A news server that answers the persona query from ARTICLES, and records every request. */
-function newsServer(link = (id: string) => `https://news.example/${id}`) {
-  const calls: Body[] = [];
-  const graphql = async (raw: unknown) => {
-    const b = raw as Body;
-    calls.push(b);
-    if (b.operationName === 'GetArticleIdsForPersona') {
-      // As the server pages: `limitPerTopic` ids after the topic's `afterCursor`, best first.
-      const per = b.variables.query.limitPerTopic ?? 20;
-      const topicResults = b.variables.query.topics.map((t: { text: string; afterCursor?: string }) => {
-        const all = ARTICLES[t.text.toLowerCase()] ?? [];
-        const from = t.afterCursor ? all.indexOf(t.afterCursor) + 1 : 0;
-        const articleIds = all.slice(from, from + per);
-        const hasNextPage = from + per < all.length;
-        return { topicText: t.text, articleIds, hasNextPage, nextCursor: hasNextPage ? articleIds.at(-1) : null };
-      });
-      return { data: { articleIdsForPersona: { topicResults } } };
-    }
-    if (b.operationName === 'GetArticlesForTopicsByIds') {
-      return { data: { articlesForTopicsByIds: { articles: b.variables.articleIds.map((id: string) => ({ _id: id, title: `Story ${id}`, article_url: link(id), language_code: 'nl', publication_name: 'De Krant', description: 'SECRET BODY TEXT' })) } } };
-    }
-    return { data: { clusterMembershipsForArticles: [] } };
+/** Stories that keep the services' promise: a page cut by `fits`, every page by cursor. */
+function pagedStories(all = STORIES) {
+  const asked: { after?: string; limit?: number; peek?: boolean }[] = [];
+  const forProfile: PodServices['stories']['forProfile'] = async (o = {}) => {
+    asked.push({ after: o.after, limit: o.limit, peek: o.peek });
+    const from = o.after ? Number(o.after.split('.')[1]) : 0;
+    let page = all.slice(from, from + (o.limit ?? 20));
+    while (o.fits && page.length > 1 && !o.fits(page, summary())) page = page.slice(0, -1);
+    const end = from + page.length;
+    return { run: 'run', summary: summary(), stories: page, ...(end < all.length ? { nextCursor: `run.${end}` } : {}), shownBefore: 0 };
   };
-  return { calls, graphql };
+  return { asked, stories: { forProfile, judge: async () => ({ saved: [], already: [], refused: [] }) } };
 }
 
-test('news_for_profile: sends only topic texts, groups by fact, and never shows a story twice', async () => {
-  const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: FACTS, setup: DONE }) }, news }) });
+test('news_for_profile: the summary numbers, the stories still to judge by fact, and the picks and stories left out with their reasons', async () => {
+  const s = pagedStories();
+  const r = await run({ services: fakeServices({ stories: s.stories }) });
   try {
     const c = await r.client();
-    const first = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 4 } }));
-    const persona = news.calls[0];
-    assert.equal(persona.operationName, 'GetArticleIdsForPersona');
-    // The same topic of two facts goes once; the query has no date and no fact.
-    // Topics are taken one per fact in turn, and no total cap lets the server drop the last facts' topics.
-    assert.deepEqual(persona.variables.query, { limitPerTopic: 20, topics: [{ text: 'utrecht council' }, { text: 'nurse pay' }, { text: 'utrecht trams' }] });
-    const sent = JSON.stringify(news.calls);
-    for (const f of FACTS) assert.ok(!sent.includes(f.statement), `the fact "${f.statement}" left the computer`);
-    assert.doesNotMatch(sent, /Lives in|Works night/);
-
-    // Round robin: each topic's best match first, then the second best.
-    assert.deepEqual(first.groups.map((g: any) => [g.factId, g.fact, g.results.map((x: any) => x.id)]), [
-      ['f1', 'Lives in Utrecht with two children', ['a1', 'a3', 'a2']],
-      ['f2', 'Works night shifts as a nurse', ['a4']],
+    const page = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
+    assert.deepEqual(s.asked, [{ after: undefined, limit: 20, peek: undefined }], 'the assistant reads without peek, so what it saw is recorded');
+    assert.deepEqual(page.summary, summary());
+    assert.deepEqual(page.toJudge, [
+      { factId: 'f1', fact: 'Lives in Utrecht', stories: [{ id: 'a2', title: 'Verhaal a2', title_en: 'Story a2', link: 'https://news.example/a2', publisher: 'De Krant', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2 }] },
+      { factId: 'f2', fact: 'Works as a nurse', stories: [{ id: 'a4', title: 'Verhaal a4', title_en: 'Story a4', link: 'https://news.example/a4', publisher: 'De Krant', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2, alsoFacts: ['Lives in Utrecht'] }] },
     ]);
-    assert.deepEqual(Object.keys(first.groups[0].results[0]).sort(), ['id', 'language', 'link', 'publishedAt', 'publisher', 'title']);
-    assert.doesNotMatch(JSON.stringify(first), /SECRET BODY TEXT/);
-
-    const second = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
-    assert.deepEqual(second.groups.flatMap((g: any) => g.results.map((x: any) => x.id)), ['a5', 'a6']);
-    const third = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
-    assert.deepEqual(third.groups, []);
-    assert.match(third.hint, /No new stories/);
-
-    const file = path.join(r.home, 'data', 'plugins', 'mcp', 'delivered.json');
-    assert.equal(statSync(file).mode & 0o777, 0o600);
-    assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).sort(), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']);
+    assert.deepEqual(page.picked, [{ id: 'a1', title: 'Verhaal a1', title_en: 'Story a1', link: 'https://news.example/a1', publisher: 'De Krant', level: 'high', reason: 'Utrecht council votes on your street.', facts: ['Lives in Utrecht'] }]);
+    assert.deepEqual(page.leftOut, [{ id: 'a3', title: 'Verhaal a3', title_en: 'Story a3', link: 'https://news.example/a3', publisher: 'De Krant', reason: 'A council far from you.', facts: ['Lives in Utrecht'] }]);
+    assert.equal(page.nextCursor, undefined);
+    assert.match(page.next, /^This is the last page\. Judge every story in toJudge, on every page, with rate_stories/);
+    assert.doesNotMatch(JSON.stringify(page), /img\.example/, 'no image address for the assistant');
   } finally {
     await r.stop();
   }
 });
 
-test('news_for_profile: a story shown more than 72 hours ago may come back', async () => {
-  const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f2', 'Works night shifts as a nurse', ['nurse pay'])], setup: DONE }) }, news }) });
+test('news_for_profile: a page cut to fit continues by cursor, so every page together carries every story once', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => story(`m${i}`, { titleEn: 'A long English headline for this story '.repeat(12).slice(0, 480), title: `Een heel lang verhaal nummer ${i} `.repeat(14).slice(0, 480) }));
+  const s = pagedStories(many);
+  const r = await run({ services: fakeServices({ stories: s.stories }) });
   try {
-    const file = path.join(r.home, 'data', 'plugins', 'mcp', 'delivered.json');
-    writeFileSync(file, JSON.stringify({ a4: Date.now() - 73 * 3600_000, a5: Date.now() - 71 * 3600_000 }));
     const c = await r.client();
-    const got = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
-    assert.deepEqual(got.groups[0].results.map((x: any) => x.id), ['a4', 'a6']);
-    assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).sort(), ['a4', 'a5', 'a6']);
+    const seen: string[] = [];
+    let after: string | undefined;
+    let pages = 0;
+    do {
+      const page = json(await c.callTool({ name: 'news_for_profile', arguments: after ? { after, limit: 50 } : { limit: 50 } }));
+      assert.ok(estimate(JSON.stringify(page)) <= 8000);
+      if (page.nextCursor) assert.match(page.next, /call news_for_profile again with after set to nextCursor/);
+      seen.push(...page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id)));
+      after = page.nextCursor;
+      pages++;
+    } while (after);
+    assert.ok(pages > 1, 'the reply was cut');
+    assert.deepEqual(seen, many.map((m) => m.id));
   } finally {
     await r.stop();
   }
 });
 
-test('news_for_profile: a reply cut to fit counts only what it carries as shown', async () => {
-  const many = fact('f9', 'Follows the local news', ['local news']);
-  ARTICLES['local news'] = Array.from({ length: 25 }, (_, i) => `b${i}`);
-  const news = newsServer((id) => `https://news.example/${id}/${'x'.repeat(1900)}`);
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [many], setup: DONE }) }, news }) });
+test('rate_stories: passes each verdict to the pod, and asks again for a pick whose reason the pod refused', async () => {
+  const judged: unknown[] = [];
+  const judge: PodServices['stories']['judge'] = async (v) => {
+    judged.push(v);
+    return { saved: [{ id: 'a2', verdict: 'picked' }], already: [{ id: 'a3', verdict: 'left_out' }], refused: [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }] };
+  };
+  const r = await run({ services: fakeServices({ stories: { judge } }) });
   try {
     const c = await r.client();
-    const ids: string[] = [];
-    for (let calls = 0; ; calls++) {
-      assert.ok(calls < 10);
-      const res = await c.callTool({ name: 'news_for_profile', arguments: { limit: 25 } });
-      assert.ok(estimate(((res.content as any[])[0]).text) <= 6000);
-      const got = json(res);
-      if (got.groups.length === 0) break;
-      if (calls === 0) assert.equal(got.truncated, true);
-      ids.push(...got.groups[0].results.map((x: any) => x.id));
+    const stories = [
+      { id: 'a2', verdict: 'picked', level: 'high', reason: ' Your council votes. ' },
+      { id: 'a3', verdict: 'left_out', reason: 'Far away.' },
+      { id: 'a4', verdict: 'picked', level: 'low', reason: 'Hm.' },
+    ];
+    const res = json(await c.callTool({ name: 'rate_stories', arguments: { stories } }));
+    assert.deepEqual(judged, [[{ id: 'a2', verdict: 'picked', level: 'high', reason: 'Your council votes.' }, stories[1], stories[2]]]);
+    assert.deepEqual(res.refused, [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }]);
+    assert.match(res.note, /Call rate_stories again for those/);
+    for (const bad of [{ stories: [] }, { stories: [{ id: 'a', verdict: 'maybe', reason: 'x' }] }, { stories: [{ id: 'a', verdict: 'picked', level: 'urgent', reason: 'x' }] }, { stories: Array(51).fill({ id: 'a', verdict: 'left_out', reason: 'x' }) }]) {
+      assert.equal(json(await c.callTool({ name: 'rate_stories', arguments: bad })).code, 'bad_input');
     }
-    assert.deepEqual(ids, ARTICLES['local news'], 'every story arrived once, in order');
-  } finally {
-    delete ARTICLES['local news'];
-    await r.stop();
-  }
-});
-
-test('news_for_profile: once a topic\'s first page was shown, the next call pages past it', async () => {
-  ARTICLES['local news'] = Array.from({ length: 45 }, (_, i) => `c${i}`);
-  const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f9', 'Follows the local news', ['local news'])], setup: DONE }) }, news }) });
-  try {
-    const c = await r.client();
-    const ids: string[] = [];
-    for (let calls = 0; ; calls++) {
-      assert.ok(calls < 10);
-      const got = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 25 } }));
-      if (got.groups.length === 0) break;
-      ids.push(...got.groups[0].results.map((x: any) => x.id));
+    // The pod's own refusal keeps its code and next step.
+    const refusing = await run({ services: fakeServices({ stories: { judge: async () => Promise.reject(Object.assign(new Error('Verdict 1 is a pick, so it needs a level.'), { code: 'bad_input', next: 'add a level' })) } }) });
+    try {
+      const err = json(await (await refusing.client()).callTool({ name: 'rate_stories', arguments: { stories: [{ id: 'a', verdict: 'picked', reason: 'x' }] } }));
+      assert.deepEqual(err, { code: 'bad_input', message: 'Verdict 1 is a pick, so it needs a level.', next: 'add a level' });
+    } finally {
+      await refusing.stop();
     }
-    assert.deepEqual(ids, ARTICLES['local news'], 'the 21st story and later came on later calls');
-    const cursors = news.calls.filter((b) => b.operationName === 'GetArticleIdsForPersona').flatMap((b) => b.variables.query.topics.map((t: any) => t.afterCursor ?? null));
-    assert.ok(cursors.includes('c19') && cursors.includes('c39'), JSON.stringify(cursors));
-  } finally {
-    delete ARTICLES['local news'];
-    await r.stop();
-  }
-});
-
-test('news_for_profile: the newest facts get stories on the first call, however many topics there are', async () => {
-  const facts = Array.from({ length: 10 }, (_, f) => fact(`f${f}`, `Fact number ${f}`, Array.from({ length: 6 }, (_, t) => `topic ${f}-${t}`)));
-  for (const f of facts) for (const t of f.topics) ARTICLES[t.text] = [`${t.text}-a`, `${t.text}-b`];
-  const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts, setup: DONE }) }, news }) });
-  try {
-    const c = await r.client();
-    const got = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 10 } }));
-    assert.deepEqual(got.groups.map((g: any) => g.factId).sort(), facts.map((f) => f.id).sort(), 'every fact has a story');
-    assert.equal(news.calls[0].variables.query.maxArticles, undefined);
-  } finally {
-    for (const f of facts) for (const t of f.topics) delete ARTICLES[t.text];
-    await r.stop();
-  }
-});
-
-test('news_for_profile: no topics yet asks for them, without a request', async () => {
-  const news = newsServer();
-  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f1', 'Lives in Utrecht', [])], setup: DONE }) }, news }) });
-  try {
-    const c = await r.client();
-    const got = json(await c.callTool({ name: 'news_for_profile', arguments: {} }));
-    assert.deepEqual(got.groups, []);
-    assert.match(got.hint, /add_facts again/);
-    assert.equal(news.calls.length, 0);
   } finally {
     await r.stop();
   }
@@ -235,7 +199,8 @@ test('digest: set_reading saves the times, get_status says when one is due, dige
 
     // A digest missed while the app was closed is due once.
     writeFileSync(file, JSON.stringify({ times: ['07:30'], lastAt: new Date(Date.now() - 3 * 86400_000).toISOString() }));
-    assert.deepEqual(json(await c.callTool({ name: 'get_status', arguments: {} })).digest, { times: ['07:30'], everyMinutes: null, due: true });
+    const late = json(await c.callTool({ name: 'get_status', arguments: {} })).digest;
+    assert.deepEqual({ ...late, missed: undefined }, { times: ['07:30'], everyMinutes: null, due: true, missed: undefined });
     assert.equal(json(await c.callTool({ name: 'digest_done', arguments: {} })).digest.due, false);
     assert.equal(json(await c.callTool({ name: 'get_status', arguments: {} })).digest.due, false);
 

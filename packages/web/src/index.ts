@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
 import { hostAllowed, originAllowed } from './guard';
 import { ADDRESS_FILE, checkCode, LINK_KEY_FILE } from './link';
+import { feed, FEED_PAGE } from './feed';
 import { createCountries, NewsError, search, storyReports, topStories } from './news';
 import { loadSite, type SiteFile } from './site';
 import { createYou } from './you';
@@ -137,6 +138,8 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     '/api/countries/': () => countries(),
     '/api/top/': (q) => topStories(services, arg(q, 'c', /^(GLOBAL|[A-Z]{3})$/, 'GLOBAL'), cursor(q)),
     '/api/story/': (q) => storyReports(services, arg(q, 'id', /^[\w.:-]{1,100}$/), cursor(q)),
+    // `after` is a run and a position (the pod's own form); `limit=0` asks for the run's numbers only.
+    '/api/feed/': (q) => feed(services, q.has('after') ? arg(q, 'after', /^[0-9a-f]{8}\.\d{1,6}$/) : null, Number(arg(q, 'limit', /^(0|30)$/, String(FEED_PAGE)))),
     '/api/search/': (q) => search(services, arg(q, 'q', /^(?=[\s\S]*\S)[\s\S]{1,200}$/).trim()),
     ...you.reads,
   };
