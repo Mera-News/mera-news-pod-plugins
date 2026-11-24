@@ -50,11 +50,13 @@ export interface Hint {
   facts: number;
   toReview?: number;
   findingTopics?: number;
+  noTopics?: number;
 }
-export const hintOf = (s: { counts: { facts: number }; setup?: { toReview: unknown[]; findingTopics: unknown[] } }): Hint => ({
+export const hintOf = (s: { counts: { facts: number }; setup?: { toReview: unknown[]; findingTopics: unknown[]; noTopics: unknown[] } }): Hint => ({
   facts: s.counts.facts,
   toReview: s.setup?.toReview.length ?? 0,
   findingTopics: s.setup?.findingTopics.length ?? 0,
+  noTopics: s.setup?.noTopics.length ?? 0,
 });
 
 const chains = new Map<string, Promise<unknown>>();
@@ -78,8 +80,8 @@ export function sessionHint(dataDir: string, now = new Date()): string {
     return 'Mera News has no profile for this person yet. When it fits, offer to set up their news profile with the set_up_profile prompt.';
   }
   const lines: string[] = [];
-  if ((hint.toReview ?? 0) > 0 || (hint.findingTopics ?? 0) > 0) {
-    lines.push('Mera News setup is not finished: some news topics are waiting for the person to review. When it fits, offer once to show them, using get_profile.');
+  if ((hint.toReview ?? 0) > 0 || (hint.findingTopics ?? 0) > 0 || (hint.noTopics ?? 0) > 0) {
+    lines.push('Mera News setup is not finished: some facts still need their news topics, or the person has not reviewed them yet. When it fits, offer once to finish setup, using get_profile.');
   }
   const d = readJson<DigestSchedule>(path.join(dataDir, DIGEST_FILE));
   if (d && Array.isArray(d.times) && isDue(d, d.lastAt ? new Date(d.lastAt) : undefined, now)) {

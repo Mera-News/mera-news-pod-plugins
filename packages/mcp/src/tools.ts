@@ -172,7 +172,8 @@ async function withStories(graphql: (body: unknown) => Promise<unknown>, results
 
 // shortcut: each setup list is cut to 10 statements (one add_facts call) so a reply always fits; upgrade if people review more at once.
 const setupOut = (s: ProfileSetup): ProfileSetup => ({ ...s, findingTopics: s.findingTopics.slice(0, 10), toReview: s.toReview.slice(0, 10), noTopics: s.noTopics.slice(0, 10) });
-const stillFinding = (p: ProfileView) => p.setup.findingTopics.length > 0 || p.facts.some((f) => f.topicsStatus === 'pending');
+// Only setup.findingTopics: a pending fact in a pod with no AI service never gets topics on its own.
+const stillFinding = (p: ProfileView) => p.setup.findingTopics.length > 0;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Room left in a reply for its state, hint, cursor and the like. */
@@ -278,7 +279,7 @@ export function buildServer(ctx: McpContext): McpServer {
     }
     const s = await statusAndHint();
     const review = s?.setup
-      ? ' Setup is not finished: show the person each fact\'s topics, let them remove any they do not want, then call edit_topics with reviewed set to those fact ids. Save keeps every topic they did not remove.'
+      ? ' Setup is not finished: show the person each fact\'s topics, let them remove any they do not want, then call edit_topics with reviewed set to those fact ids. Every topic they did not remove is kept.'
       : '';
     const note = s?.ai
       ? `Saved. Topics are made from the saved facts within a minute or two: call get_profile with waitSeconds to wait for them.${review}`

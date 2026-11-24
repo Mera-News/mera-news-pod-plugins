@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import type { FactView, ProfileSetup, TopicEdit } from 'mera-news-pod/plugin-api';
 import { DONE, fakeServices, json, run, status } from './helpers';
+import { instructions, prompts } from '../../src/text';
 
 const fact = (topicsStatus: FactView['topicsStatus']): FactView => ({
   id: 'f1',
@@ -87,7 +88,7 @@ test('edit_topics: passes reviewed, notes the new counts for the session hint, a
     const c = await r.client();
     const s = json(await c.callTool({ name: 'get_status', arguments: {} }));
     assert.deepEqual(s.setup, toReview, 'get_status carries setup while it is not finished');
-    assert.deepEqual(hint(), { facts: 1, toReview: 1, findingTopics: 0 });
+    assert.deepEqual(hint(), { facts: 1, toReview: 1, findingTopics: 0, noTopics: 0 });
 
     const refused = await c.callTool({ name: 'edit_topics', arguments: { reviewed: ['pending'] } });
     assert.equal(refused.isError, true);
@@ -95,7 +96,7 @@ test('edit_topics: passes reviewed, notes the new counts for the session hint, a
 
     await c.callTool({ name: 'edit_topics', arguments: { remove: ['t1'], reviewed: ['f1'] } });
     assert.deepEqual(edits.at(-1), { remove: ['t1'], reviewed: ['f1'] });
-    assert.deepEqual(hint(), { facts: 1, toReview: 0, findingTopics: 0 });
+    assert.deepEqual(hint(), { facts: 1, toReview: 0, findingTopics: 0, noTopics: 0 });
     assert.ok(!readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8').includes('Utrecht'), 'the hint file holds counts only');
     assert.equal(json(await c.callTool({ name: 'get_status', arguments: {} })).setup, undefined);
   } finally {
@@ -128,6 +129,33 @@ test('get_profile: a long setup list is cut so the reply always fits', async () 
     const got = json(await (await r.client()).callTool({ name: 'get_profile', arguments: {} }));
     assert.equal(got.setup.complete, false);
     assert.equal(got.setup.toReview.length, 10);
+  } finally {
+    await r.stop();
+  }
+});
+
+test('get_profile: waitSeconds waits only for setup, not for a fact on the page that nothing is making topics for', async () => {
+  let calls = 0;
+  const appFact = { ...fact('pending'), needsReview: false };
+  const r = await run({ services: fakeServices({ profile: { get: async () => (calls++, { facts: [appFact], setup: { ...DONE, complete: false, noTopics: ['Lives in Utrecht'] } }) } }) });
+  try {
+    const started = Date.now();
+    await (await r.client()).callTool({ name: 'get_profile', arguments: { waitSeconds: 5 } });
+    assert.ok(Date.now() - started < 900, 'it did not wait');
+    assert.equal(calls, 1);
+  } finally {
+    await r.stop();
+  }
+});
+
+test('the hint file counts facts left with no topics, and the review copy names no button', async () => {
+  const setup: ProfileSetup = { complete: false, findingTopics: [], toReview: [], noTopics: ['Lives in Utrecht'] };
+  const r = await run({ services: fakeServices({ reading: { status: async () => status({ setup }) } }) });
+  try {
+    const c = await r.client();
+    const added = json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } }));
+    assert.deepEqual(JSON.parse(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8')), { facts: 1, toReview: 0, findingTopics: 0, noTopics: 1 });
+    for (const text of [added.note, instructions, prompts.set_up_profile.text]) assert.doesNotMatch(text, /Save keeps/, text);
   } finally {
     await r.stop();
   }

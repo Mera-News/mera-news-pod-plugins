@@ -199,7 +199,7 @@ test('add_facts: topics go to new and already saved facts, never to a refused on
     assert.deepEqual(given, [['f1', ['Utrecht council', 'Utrecht trams']], ['f2', ['nurse pay']]]);
     assert.deepEqual(res.topics, [{ factId: 'f1', added: [{ id: 't0', text: 'Utrecht council' }, { id: 't1', text: 'Utrecht trams' }], skipped: [] }, { factId: 'f2', error: 'Topic 1 is longer than 80 characters.' }]);
     assert.equal(res.note, 'Saved. Call get_profile to see the topics.');
-    assert.deepEqual(JSON.parse(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8')), { facts: 2, toReview: 0, findingTopics: 0 });
+    assert.deepEqual(JSON.parse(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8')), { facts: 2, toReview: 0, findingTopics: 0, noTopics: 0 });
 
     const bare = json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } }));
     assert.match(bare.note, /makes no topics on its own/, 'no AI service: the assistant is asked for topics');
@@ -274,7 +274,7 @@ test('the plugin notes the fact count at start for the session hint, without wai
     assert.ok(!existsSync(file), 'started before the status answered');
     answer();
     for (let i = 0; !existsSync(file) && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(readFileSync(file, 'utf8'), '{"facts":0,"toReview":0,"findingTopics":0}\n');
+    assert.equal(readFileSync(file, 'utf8'), '{"facts":0,"toReview":0,"findingTopics":0,"noTopics":0}\n');
   } finally {
     await r.stop();
   }

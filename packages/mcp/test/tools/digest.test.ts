@@ -75,3 +75,9 @@ test('sessionHint: topics waiting for review are offered, with a due digest too,
   writeFileSync(path.join(dir, 'hint.json'), '{"facts":2,"toReview":0,"findingTopics":0}');
   assert.equal(sessionHint(dir, at(2026, 5, 9, 9, 0)), '', 'setup finished and no digest due');
 });
+
+test('sessionHint: facts left with no topics keep setup open in the hint too', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mcp-hint-'));
+  writeFileSync(path.join(dir, 'hint.json'), '{"facts":1,"toReview":0,"findingTopics":0,"noTopics":1}');
+  assert.match(sessionHint(dir), /^Mera News setup is not finished: .*get_profile\.$/);
+});
