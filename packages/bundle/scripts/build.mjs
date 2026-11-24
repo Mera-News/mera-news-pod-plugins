@@ -52,6 +52,8 @@ for (const f of ['server.cjs', 'mcp-plugin.cjs', 'THIRD-PARTY-NOTICES.txt']) fs.
 fs.copyFileSync(path.join(pkg, 'manifest.json'), path.join(stage, 'manifest.json'));
 fs.copyFileSync(path.join(pluginDir, 'assets/icon.png'), path.join(stage, 'icon.png'));
 for (const f of ['LICENSE', 'TRADEMARK.md']) fs.copyFileSync(path.join(repo, f), path.join(stage, f));
+// The desktop app refuses a manifest its schema rejects, with no reason shown: fail the build instead.
+execFileSync(path.join(repo, 'node_modules/.bin/mcpb'), ['validate', path.join(stage, 'manifest.json')], { stdio: ['ignore', 'ignore', 'inherit'] });
 execFileSync('zip', ['-q', '-r', '-X', path.join(dist, 'mera-news.mcpb'), '.'], { cwd: stage });
 
 const size = (f) => `${(fs.statSync(f).size / 1e6).toFixed(1)} MB`;

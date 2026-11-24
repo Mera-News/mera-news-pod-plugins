@@ -17,6 +17,7 @@
     "test": "tsx --test \"test/**/*.test.ts\" \"packages/*/test/**/*.test.ts\""
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@types/node": "^26.6.6",
     "esbuild": "0.28.2",
     "mera-news-pod": "git+https://github.com/Mera-News/mera-news-pod.git#7aa5cab111ac1521d393e83efcce5bd55d01b045",
