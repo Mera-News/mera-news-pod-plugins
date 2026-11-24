@@ -97,6 +97,9 @@ async function listening(port: number, ms: number): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  // An app can hand over an unset setting as quoting debris or a template: treat that as no key, so secrets.json applies.
+  const given = process.env.MERA_POD_DATA_API_KEY;
+  if (given !== undefined && (given.trim().length < 16 || /["'\s]|\$\{/.test(given))) delete process.env.MERA_POD_DATA_API_KEY;
   // The pod replaces the global fetch with its guard, which refuses loopback; the bridge keeps the real one.
   const direct = globalThis.fetch;
   const pod = require('mera-news-pod/embed') as typeof Embed;

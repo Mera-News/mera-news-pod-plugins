@@ -111,6 +111,19 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.equal(await first.close(), 0);
   });
 
+  it('an unset key the app hands over as quoting debris falls back to the key in secrets.json', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const first = startServer(dir, home, { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY });
+    await connect(first);
+    assert.equal(await first.close(), 0);
+    writeFileSync(path.join(home, 'secrets.json'), JSON.stringify({ dataApiKey: KEY }), { mode: 0o600 });
+    const s = startServer(dir, home, { MERA_POD_DATA_API_KEY: `'"'"'` });
+    await connect(s);
+    const found = await s.request('tools/call', { name: 'search_news', arguments: { query: 'tram' } });
+    assert.match(JSON.stringify(found.result), /Tram line approved/, s.stderr());
+    assert.equal(await s.close(), 0);
+  });
+
   it('with no AI service the assistant writes the topics, and news_for_profile sends only them', async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
     const hint = () => {

@@ -123,6 +123,9 @@ class NewsError extends Error {
 }
 
 /** One news query. The store's own error text never reaches the reply. */
+const KEY_FIX =
+  "ask the person to paste the key from Mera Labs into the Mera News extension or plugin settings in their AI app (for a pod they run themselves: dataApiKey in secrets.json in the pod's folder), then start a new conversation; never ask them to paste the key in the chat";
+
 async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationName: string, query: string, variables: object): Promise<T> {
   let reply: { data?: T; errors?: { extensions?: { code?: string } }[] };
   try {
@@ -132,7 +135,9 @@ async function ask<T>(graphql: (body: unknown) => Promise<unknown>, operationNam
   }
   if (reply.errors?.length || !reply.data) {
     if (reply.errors?.[0]?.extensions?.code === 'BAD_USER_INPUT') throw new NewsError('bad_input', 'The field "after" is not valid for latest_news.', 'call latest_news again without "after"');
-    throw new NewsError('news_unavailable', 'The news server could not answer.', 'try again later, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder');
+    // The news server refuses a key inside an ordinary reply, so this is the one place that can name it.
+    if (reply.errors?.[0]?.extensions?.code === 'UNAUTHENTICATED') throw new NewsError('key_refused', 'The Mera News key was refused.', KEY_FIX);
+    throw new NewsError('news_unavailable', 'The news server could not answer.', 'try again later; if it keeps failing, call get_status, which names what to fix');
   }
   return reply.data;
 }

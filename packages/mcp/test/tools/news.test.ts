@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { fakeServices, json, run } from './helpers';
 
 type Body = { operationName: string; variables: Record<string, any> };
-const NEXT = 'try again later, and if it keeps failing ask the person to run node build/cli.js check in the mera-news-pod folder';
+const NEXT = 'try again later; if it keeps failing, call get_status, which names what to fix';
 
 const article = (id: string, over: Record<string, unknown> = {}) => ({
   _id: id,
@@ -237,4 +237,13 @@ test('news tools: a news server that cannot group still answers with the plain l
   );
   const body = json(await callWith(services, 'latest_news', {}));
   assert.deepEqual(body.results.map((x: any) => [x.id, x.story]), [['a', undefined], ['b', undefined]]);
+});
+
+test('news tools: a refused Mera News key says where the person fixes it, never asking for the key in the chat', async () => {
+  const { services } = stub(() => ({ errors: [{ message: 'Invalid API key', extensions: { code: 'UNAUTHENTICATED' } }], data: null }));
+  const res = json(await callWith(services, 'search_news', { query: 'tram' }));
+  assert.equal(res.code, 'key_refused');
+  assert.match(res.next, /settings/);
+  assert.match(res.next, /never ask/i);
+  assert.doesNotMatch(JSON.stringify(res), /Invalid API key/);
 });

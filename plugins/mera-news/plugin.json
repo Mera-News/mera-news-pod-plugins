@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "mera-news",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "News picked for what you follow, from thousands of publishers in many languages. Your interests stay on your computer. Needs a key from Mera Labs.",
   "author": {
     "name": "Mera Labs B.V.",

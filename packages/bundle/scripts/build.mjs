@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -49,7 +50,13 @@ for (const f of ['server.cjs', 'mcp-plugin.cjs', 'THIRD-PARTY-NOTICES.txt']) fs.
 const stage = path.join(dist, 'mcpb');
 fs.mkdirSync(path.join(stage, 'server'), { recursive: true });
 for (const f of ['server.cjs', 'mcp-plugin.cjs', 'THIRD-PARTY-NOTICES.txt']) fs.copyFileSync(path.join(dist, f), path.join(stage, 'server', f));
-fs.copyFileSync(path.join(pkg, 'manifest.json'), path.join(stage, 'manifest.json'));
+// The desktop app refuses a prompt its manifest does not declare, and a declared prompt needs its text:
+// take both from the server's own prompts so they cannot drift.
+await build({ ...common, entryPoints: [path.join(repo, 'packages/mcp/src/text.ts')], outfile: path.join(dist, 'text.cjs') });
+const { prompts } = createRequire(import.meta.url)(path.join(dist, 'text.cjs'));
+const manifest = JSON.parse(fs.readFileSync(path.join(pkg, 'manifest.json'), 'utf8'));
+manifest.prompts = Object.entries(prompts).map(([name, p]) => ({ name, description: p.description, text: p.text }));
+fs.writeFileSync(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 fs.copyFileSync(path.join(pluginDir, 'assets/icon.png'), path.join(stage, 'icon.png'));
 for (const f of ['LICENSE', 'TRADEMARK.md']) fs.copyFileSync(path.join(repo, f), path.join(stage, f));
 // The desktop app refuses a manifest its schema rejects, with no reason shown: fail the build instead.
