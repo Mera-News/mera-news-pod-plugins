@@ -1,0 +1,17 @@
+{
+  "description": "At the start of a session, says in one sentence whether Mera News has a profile to set up or a digest due. Reads two small state files; never starts the pod and never prints a fact.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/server.cjs\" session-hint",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

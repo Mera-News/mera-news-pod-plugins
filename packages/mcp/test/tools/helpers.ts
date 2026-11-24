@@ -3,7 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import type { PluginContext, PodServicesV1 as PodServices, PodStatus, PickView } from 'mera-news-pod/plugin-api';
+import type { PodServices, PodStatus, PickView } from 'mera-news-pod/plugin-api';
+import type { McpContext } from '../../src/tools';
 import { createPlugin } from '../../src';
 
 export const TOKEN = 'test-token-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -36,23 +37,33 @@ export const pick = (i: number): PickView => ({
   facts: ['Lives in Utrecht'],
 });
 
-export function fakeServices(over: Partial<PodServices> = {}): PodServices {
-  return {
+/** Fake services; each member given replaces only those calls of that member. */
+export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServices[K]> } = {}): PodServices {
+  const base: PodServices = {
     profile: {
       get: async () => ({ facts: [] }),
       addFacts: async (s) => ({ added: s.map((statement, i) => ({ id: `f${i}`, statement })), already: [], refused: [] }),
       removeFacts: async (ids) => ({ removed: ids.map((id) => ({ id, statement: 'x', topics: ['t'] })), notFound: [] }),
       editTopics: async (e) => ({ results: [...(e.remove ?? []).map((id, index) => ({ op: 'remove' as const, index, ok: true, id }))] }),
+      addTopics: async (_id, texts) => ({ added: texts.map((text, i) => ({ id: `t${i}`, text })), skipped: [] }),
     },
     suggestions: {
       get: async () => ({ state: 'ok', hint: 'Fine.', nextReadAt: null, picks: [pick(1)], cursor: 'a.1', more: false }),
     },
-    reading: { status: async () => status(), set: async (c) => status({ reading: c.paused ? 'paused' : 'on', everyMinutes: c.everyMinutes ?? 60 }) },
-    // The mcp plugin uses neither; they are part of what a version 1 plugin is given.
+    reading: {
+      status: async () => status(),
+      set: async (c) => status({ reading: c.paused ? 'paused' : 'on', everyMinutes: c.everyMinutes ?? 60 }),
+      readNow: async () => 'ran',
+    },
+    // The mcp plugin uses none of these; they are part of what a version 2 plugin is given.
     model: { chatCompletions: async () => new Response('{}') },
     news: { graphql: async () => ({ data: null }) },
-    ...over,
+    commands: { run: async () => ({ results: [], snapshot: { schemaVersion: 0, registry: 0, tables: {} } }) },
+    display: { snapshot: async () => ({ schemaVersion: 0, registry: 0, tables: {} }), versions: () => ({ schemaVersion: 0, registry: 0 }) },
+    events: { on: () => () => {} },
   };
+  for (const [k, v] of Object.entries(over)) Object.assign(base[k as keyof PodServices], v);
+  return base;
 }
 
 /**
@@ -92,8 +103,9 @@ export async function run(opts: { services?: PodServices; config?: unknown; toke
     chmodSync(path.join(dataDir, 'token'), mode);
   };
   if (opts.token !== null) writeToken(opts.token ?? TOKEN);
-  const ctx: PluginContext = {
-    podApi: 1,
+  const ctx: McpContext = {
+    podApi: 2,
+    meraNewsApp: null,
     services: opts.services ?? fakeServices(),
     config: { port: 0, ...(opts.config as object | undefined) },
     dataDir,

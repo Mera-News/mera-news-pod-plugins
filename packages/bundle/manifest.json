@@ -51,6 +51,10 @@
       "description": "Stories picked for the facts you follow."
     },
     {
+      "name": "news_for_profile",
+      "description": "Stories that match the topics of your facts, each shown once."
+    },
+    {
       "name": "latest_news",
       "description": "The latest news, from a country or the topics you follow."
     },
@@ -64,7 +68,7 @@
     },
     {
       "name": "add_facts",
-      "description": "Save facts about you, such as your city or your work."
+      "description": "Save facts about you, such as your city or your work, with their news topics."
     },
     {
       "name": "remove_facts",
@@ -72,15 +76,19 @@
     },
     {
       "name": "edit_topics",
-      "description": "Add, rename or drop the news topics made from a fact."
+      "description": "Remove a news topic, or show more or less of it."
     },
     {
       "name": "get_status",
-      "description": "Whether reading is on and anything that needs fixing."
+      "description": "Whether reading is on, when your digest is due, and anything that needs fixing."
     },
     {
       "name": "set_reading",
-      "description": "Pause or resume reading, or change how often it reads."
+      "description": "Pause or resume reading, change how often it reads, or set when you want your digest."
+    },
+    {
+      "name": "digest_done",
+      "description": "Mark a digest as shown."
     }
   ],
   "compatibility": {

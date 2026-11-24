@@ -5,18 +5,22 @@ A plugin for mera-news-pod that serves an MCP server, so an AI app can set up yo
 ## Tools
 
 - `get_profile`: the saved facts and the topics made from them, a page at a time.
-- `add_facts`: saves facts about your life; the pod makes topics from them.
+- `add_facts`: saves facts about your life. A pod with an AI service makes topics from them; without one, your assistant writes the topics and passes them with each fact.
 - `remove_facts`: removes saved facts and their topics.
 - `edit_topics`: removes a topic, or shows more or less of it.
 - `get_suggestions`: the new picks, each a headline with its link and a one-line reason. Each pick is handed out once.
 - `search_news`: searches the stored news by words and returns each match's headline, link, publisher, date and language, best first.
 - `latest_news`: the newest stored news, for one country (its three-letter code, such as `GBR`) or all, a page at a time.
-- `get_status`: what the pod is doing, when it reads next, and any problem with its fix.
-- `set_reading`: pauses or resumes reading, or changes how often the pod reads.
+- `news_for_profile`: stories that match the topics of your facts, grouped by fact, each shown once (a story can come back after 72 hours). Only the topics go to the news server, never your facts. Your assistant picks from these when the pod makes no picks itself.
+- `get_status`: what the pod is doing, when it reads next, when your digest is due, and any problem with its fix.
+- `set_reading`: pauses or resumes reading, changes how often the pod reads, or sets when you want your digest: times of day, every so many minutes, or both.
+- `digest_done`: marks a digest as shown, so the next one is due at your next chosen time.
 
 It also offers two prompts: `set_up_profile` and `daily_digest`.
 
-`search_news` and `latest_news` need no AI service: a pod with no `ai` in its `pod.json` serves them and the profile tools, and makes no picks.
+`search_news`, `latest_news` and `news_for_profile` need no AI service: a pod with no `ai` in its `pod.json` serves them and the profile tools, and makes no picks of its own. Your assistant picks instead, when you ask or when your digest runs.
+
+The digest schedule is in `digest.json` and the stories already shown in `delivered.json`, both in the plugin's data folder.
 
 ## Publishers' content
 

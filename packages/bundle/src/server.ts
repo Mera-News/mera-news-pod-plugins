@@ -5,10 +5,12 @@ console.log = console.info = console.debug = console.error;
 
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import type * as Embed from 'mera-news-pod/embed';
 // The bridge is bundled from source with this file, so the mcp package need not be built first.
 import { runBridge } from '../../mcp/src/bin/bridge';
+import { mcpDataDir, sessionHint } from '../../mcp/src/digest';
 
 /** Mera News' own news server. A key from Mera Labs unlocks it. */
 export const MERA_NEWS_DATA_SERVER = 'https://api.mera.news';
@@ -124,8 +126,24 @@ async function main(): Promise<void> {
   await stop();
 }
 
+/**
+ * `server.cjs session-hint`, for an app's session start hook: one sentence on standard output, or
+ * nothing. It reads two small files the mcp plugin writes and never loads the pod, so it is quick and
+ * shows no fact. The home is the pod's own default.
+ */
+function printSessionHint(): void {
+  try {
+    const line = sessionHint(mcpDataDir(process.env.MERA_POD_HOME || path.join(os.homedir(), '.mera-news-pod')));
+    if (line) process.stdout.write(`${line}\n`);
+  } catch {
+    // A hint is never worth failing a session start.
+  }
+}
+
 // Always run: a desktop app may start this file in an Electron utility process, where require.main is not this module.
-main().catch((error) => {
-  console.error(`Mera News could not start: ${oneLine(error)}`);
-  process.exit(1);
-});
+if (process.argv[2] === 'session-hint') printSessionHint();
+else
+  main().catch((error) => {
+    console.error(`Mera News could not start: ${oneLine(error)}`);
+    process.exit(1);
+  });

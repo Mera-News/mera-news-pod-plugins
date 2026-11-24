@@ -7,9 +7,10 @@ import path from 'node:path';
 import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
 import { readToken, rotateToken } from './bin/token';
 import { hostAllowed, originAllowed, sameSecret } from './guard';
+import { HINT_FILE, writeJson } from './digest';
 import { buildServer } from './tools';
 
-export const podApi = 1 as const;
+export const podApi = 2 as const;
 export const name = 'mcp';
 
 interface Config {
@@ -37,10 +38,12 @@ function readConfig(raw: unknown): Config {
 }
 
 export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): PodPlugin => {
+  if (ctx.podApi !== 2) throw new Error('The mcp plugin needs plugin API version 2, and this pod gave version 1.');
+  const v2 = ctx;
   const config = readConfig(ctx.config);
   // The pod gives this plugin `<home>/data/plugins/mcp`, which is where the bridge and the bin look.
   const tokenFile = path.join(ctx.dataDir, 'token');
-  const handler = createMcpHandler(() => buildServer(ctx), { legacy: 'stateless', onerror: () => ctx.log.error('The MCP handler failed.') });
+  const handler = createMcpHandler(() => buildServer(v2), { legacy: 'stateless', onerror: () => ctx.log.error('The MCP handler failed.') });
   const serve = toNodeHandler(handler, { onerror: () => ctx.log.error('A request could not be served.') });
   let listening: http.Server | undefined;
   let port = config.port;
@@ -90,6 +93,12 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       });
       listening = server;
       port = (server.address() as AddressInfo).port;
+      // The session hint's fact count, fresh at every start; the tools that change facts update it.
+      try {
+        writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: (await v2.services.reading.status()).counts.facts });
+      } catch {
+        ctx.log.warn('The session hint file could not be written.');
+      }
     },
     async stop() {
       const server = listening;

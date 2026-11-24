@@ -27,13 +27,13 @@ test('the built plugin never requires the pod or the client, and loads and serve
       return load.call(this, request, ...rest);
     };
     const m = require(${JSON.stringify(path.join(out, 'index.js'))});
-    if (m.podApi !== 1 || m.name !== 'mcp' || typeof m.createPlugin !== 'function') throw new Error('bad module');
+    if (m.podApi !== 2 || m.name !== 'mcp' || typeof m.createPlugin !== 'function') throw new Error('bad module');
     const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-built-'));
     const dataDir = path.join(home, 'data', 'plugins', 'mcp');
     fs.mkdirSync(dataDir, { recursive: true });
     const quiet = () => {};
-    const plugin = m.createPlugin({ podApi: 1, config: { port: 0 }, dataDir, estimateTokens: (t) => Math.ceil(t.length / 4),
+    const plugin = m.createPlugin({ podApi: 2, meraNewsApp: null, config: { port: 0 }, dataDir, estimateTokens: (t) => Math.ceil(t.length / 4),
       log: { debug: quiet, info: quiet, warn: quiet, error: quiet },
       services: { profile: {}, suggestions: {}, reading: { status: async () => ({ reading: 'on' }) } } });
     (async () => {

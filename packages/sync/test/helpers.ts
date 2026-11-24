@@ -62,6 +62,7 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
       addFacts: async () => ({ added: [], already: [], refused: [] }),
       removeFacts: async () => ({ removed: [], notFound: [] }),
       editTopics: async () => ({ results: [] }),
+      addTopics: async () => ({ added: [], skipped: [] }),
     },
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
     reading: {

@@ -1,10 +1,13 @@
 import { McpServer, type CallToolResult, type StandardSchemaWithJSON, type ToolAnnotations } from '@modelcontextprotocol/server';
-import type { PickView, PluginContext, PodStatus } from 'mera-news-pod/plugin-api';
+import path from 'node:path';
+import type { FactView, PickView, PluginContext, PodStatus } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
+import { DIGEST_FILE, HINT_FILE, isDue, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
 import { descriptions, instructions, prompts } from './text';
 
-const statements = z.array(z.string().min(1).max(300)).min(1).max(10);
+const statement = z.string().min(1).max(300);
+const statements = z.array(z.union([statement, z.object({ statement, topics: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional() })])).min(1).max(10);
 const ids = z.array(z.string().min(1)).min(1).max(20);
 
 const schemas = {
@@ -25,12 +28,24 @@ const schemas = {
     limit: z.number().int().min(1).max(25).default(10),
     after: z.string().min(1).max(200).optional(),
   }),
+  news_for_profile: z.object({ limit: z.number().int().min(1).max(25).default(15) }),
   get_status: z.object({}),
   set_reading: z.object({
     paused: z.boolean().optional(),
     everyMinutes: z.number().int().min(5).max(1440).optional(),
+    digestTimes: z.array(z.string().regex(TIME)).max(48).optional(),
+    digestEveryMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   }),
+  digest_done: z.object({}),
 };
+
+/** The version 2 context: add_facts needs `profile.addTopics`. */
+export type McpContext = Extract<PluginContext, { podApi: 2 }>;
+
+const PERSONA = `query GetArticleIdsForPersona($query: PersonaQueryInput!) { articleIdsForPersona(query: $query) { topicResults { topicText articleIds } } }`;
+/** Stories news_for_profile showed are not shown again for this long. */
+const SHOWN_FOR_MS = 72 * 3600_000;
+
 
 const readOnly: ToolAnnotations = { readOnlyHint: true };
 const writes: ToolAnnotations = { readOnlyHint: false, destructiveHint: false };
@@ -152,8 +167,33 @@ const ENVELOPE_TOKENS = 400;
 const saysCode = (e: unknown): e is { code: string; message: string; next: string } =>
   e instanceof Error && typeof (e as { code?: unknown }).code === 'string' && typeof (e as { next?: unknown }).next === 'string';
 
-export function buildServer(ctx: PluginContext): McpServer {
+export function buildServer(ctx: McpContext): McpServer {
   const { services, estimateTokens: estimate } = ctx;
+  const digestFile = path.join(ctx.dataDir, DIGEST_FILE);
+  const shownFile = path.join(ctx.dataDir, 'delivered.json');
+  const digestView = (d = readJson<DigestSchedule>(digestFile)) => {
+    const times = Array.isArray(d?.times) ? d.times : [];
+    return { times, everyMinutes: d?.everyMinutes ?? null, due: isDue({ times, everyMinutes: d?.everyMinutes }, d?.lastAt ? new Date(d.lastAt) : undefined, new Date()) };
+  };
+  const changeDigest = (change: (d: DigestSchedule) => DigestSchedule) =>
+    serially(digestFile, () => {
+      const d = change(readJson<DigestSchedule>(digestFile) ?? { times: [] });
+      writeJson(digestFile, d);
+      return digestView(d);
+    });
+  // The session hint reads the fact count from this file, so it never has to start the pod.
+  const noteFacts = (s: PodStatus) => {
+    try {
+      writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: s.counts.facts });
+    } catch {
+      ctx.log.warn('The session hint file could not be written.');
+    }
+  };
+  const statusAndHint = () =>
+    services.reading.status().then(
+      (s) => (noteFacts(s), s),
+      () => undefined,
+    );
   const server = new McpServer({ name: 'mera-news-pod-mcp', version: '0.1.0' }, { instructions });
 
   function tool<K extends keyof typeof schemas>(
@@ -192,12 +232,37 @@ export function buildServer(ctx: PluginContext): McpServer {
     return ok(make(kept, cut), estimate);
   });
 
-  tool('add_facts', writes, async ({ statements }) => {
-    const result = await services.profile.addFacts(statements);
-    return ok({ ...result, note: 'Topics are made from the saved facts within a minute or two. Call get_profile to see them.' }, estimate);
+  tool('add_facts', writes, async ({ statements: items }) => {
+    const result = await services.profile.addFacts(items.map((i) => (typeof i === 'string' ? i : i.statement)));
+    const saved = [...result.added, ...result.already];
+    const idOf = (s: string) => (saved.find((f) => f.statement === s.trim()) ?? saved.find((f) => f.statement.toLowerCase() === s.trim().toLowerCase()))?.id;
+    // Topics go to facts already saved too, which mends a fact an earlier call left without topics.
+    const topics: object[] = [];
+    let withTopics = 0;
+    for (const item of items) {
+      const id = typeof item === 'string' || !item.topics ? undefined : idOf(item.statement);
+      if (!id || typeof item === 'string' || !item.topics) continue;
+      withTopics++;
+      try {
+        topics.push({ factId: id, ...(await services.profile.addTopics(id, item.topics)) });
+      } catch (e) {
+        topics.push({ factId: id, error: saysCode(e) ? e.message : 'These topics could not be saved.' });
+      }
+    }
+    const s = await statusAndHint();
+    const note = s?.ai
+      ? 'Topics are made from the saved facts within a minute or two. Call get_profile to see them.'
+      : withTopics < saved.length
+        ? 'This pod makes no topics on its own. Call add_facts again with the same statements and 4 to 8 news topics for each.'
+        : 'Call get_profile to see the topics.';
+    return ok({ ...result, ...(topics.length ? { topics } : {}), note }, estimate);
   });
 
-  tool('remove_facts', destructive, async ({ ids }) => ok(await services.profile.removeFacts(ids), estimate));
+  tool('remove_facts', destructive, async ({ ids }) => {
+    const removed = await services.profile.removeFacts(ids);
+    await statusAndHint();
+    return ok(removed, estimate);
+  });
 
   tool('edit_topics', destructive, async ({ remove, weight }) =>
     ok(await services.profile.editTopics({ ...(remove ? { remove } : {}), ...(weight ? { weight } : {}) }), estimate),
@@ -241,11 +306,75 @@ export function buildServer(ctx: PluginContext): McpServer {
     return ok({ results: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
   });
 
-  const status = (s: PodStatus) => ok(s, estimate);
-  tool('get_status', readOnly, async () => status(await services.reading.status()));
-  tool('set_reading', destructive, async ({ paused, everyMinutes }) =>
-    status(await services.reading.set({ ...(paused === undefined ? {} : { paused }), ...(everyMinutes === undefined ? {} : { everyMinutes }) })),
-  );
+  tool('news_for_profile', readOnly, async ({ limit }) => {
+    const facts: FactView[] = [];
+    for (let offset: number | undefined = 0, pages = 0; offset !== undefined && pages < 20; pages++) {
+      const page = await services.profile.get(offset ? { offset } : undefined);
+      facts.push(...page.facts);
+      offset = page.nextOffset;
+    }
+    // Each topic text once, with the first fact it came from. Only these texts leave the computer.
+    const factOf = new Map<string, { fact: FactView; text: string }>();
+    for (const f of facts) for (const t of f.topics) if (!factOf.has(t.text.trim().toLowerCase())) factOf.set(t.text.trim().toLowerCase(), { fact: f, text: t.text.trim() });
+    if (factOf.size === 0) {
+      const hint = facts.length ? 'The saved facts have no topics yet. Call add_facts again with the same statements and 4 to 8 news topics for each.' : 'Nothing is saved yet. Offer to set up the news profile.';
+      return ok({ groups: [], hint }, estimate);
+    }
+    const topics = [...factOf.values()].map((v) => v.text).slice(0, 200); // the server's limit per request
+    type Persona = { articleIdsForPersona: { topicResults: { topicText: string; articleIds: string[] }[] } };
+    const lists = (await ask<Persona>(services.news.graphql, 'GetArticleIdsForPersona', PERSONA, { query: { limitPerTopic: 5, maxArticles: 150, topics: topics.map((text) => ({ text })) } })).articleIdsForPersona.topicResults;
+
+    return serially(shownFile, async () => {
+      const now = Date.now();
+      const shown = Object.fromEntries(Object.entries(readJson<Record<string, number>>(shownFile) ?? {}).filter(([, at]) => typeof at === 'number' && now - at < SHOWN_FOR_MS));
+      // Round robin over the topics, so each one's best match comes before any topic's second.
+      const topicOf = new Map<string, string>();
+      for (let rank = 0; topicOf.size < limit && lists.some((l) => rank < l.articleIds.length); rank++) {
+        for (const l of lists) {
+          const id = l.articleIds[rank];
+          if (id && !shown[id] && !topicOf.has(id) && topicOf.size < limit) topicOf.set(id, l.topicText);
+        }
+      }
+      if (topicOf.size === 0) return ok({ groups: [], hint: 'No new stories since the last call. search_news finds more.' }, estimate);
+      const got = await ask<{ articlesForTopicsByIds: { articles: NewsArticleIn[] } }>(services.news.graphql, 'GetArticlesForTopicsByIds', ARTICLES_BY_IDS, { articleIds: [...topicOf.keys()] });
+      const byId = new Map(got.articlesForTopicsByIds.articles.map((a) => [a._id, a]));
+      const results = await withStories(services.news.graphql, [...topicOf.keys()].flatMap((id) => (byId.has(id) ? newsOut(byId.get(id)!) : [])));
+      const grouped = (kept: NewsOut[], cut: boolean) => {
+        const groups = new Map<string, { factId: string; fact: string; results: NewsOut[] }>();
+        for (const r of kept) {
+          const f = factOf.get((topicOf.get(r.id) ?? '').trim().toLowerCase())?.fact;
+          if (!f) continue;
+          if (!groups.has(f.id)) groups.set(f.id, { factId: f.id, fact: f.statement.slice(0, 300), results: [] });
+          groups.get(f.id)!.results.push(r);
+        }
+        return { groups: [...groups.values()], ...(cut ? { truncated: true } : {}) };
+      };
+      const { kept, cut } = fit(results, grouped, estimate);
+      // Only what is in the reply counts as shown.
+      for (const r of kept) shown[r.id] = now;
+      writeJson(shownFile, shown);
+      return ok(grouped(kept, cut), estimate);
+    });
+  });
+
+  const status = (s: PodStatus) => ok({ ...s, digest: digestView() }, estimate);
+  tool('get_status', readOnly, async () => {
+    const s = await services.reading.status();
+    noteFacts(s);
+    return status(s);
+  });
+  tool('set_reading', destructive, async ({ paused, everyMinutes, digestTimes, digestEveryMinutes }) => {
+    if (digestTimes !== undefined || digestEveryMinutes !== undefined) {
+      await changeDigest((d) => {
+        const next: DigestSchedule = { times: digestTimes ? [...new Set(digestTimes)].sort() : d.times, lastAt: d.lastAt ?? new Date().toISOString() };
+        const every = digestEveryMinutes === undefined ? d.everyMinutes : (digestEveryMinutes ?? undefined);
+        return every ? { ...next, everyMinutes: every } : next;
+      });
+    }
+    const change = { ...(paused === undefined ? {} : { paused }), ...(everyMinutes === undefined ? {} : { everyMinutes }) };
+    return status(Object.keys(change).length ? await services.reading.set(change) : await services.reading.status());
+  });
+  tool('digest_done', writes, async () => ok({ digest: await changeDigest((d) => ({ ...d, lastAt: new Date().toISOString() })) }, estimate));
 
   for (const [name, p] of Object.entries(prompts)) {
     server.registerPrompt(name, { description: p.description }, () => ({

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -72,7 +72,7 @@ describe('the bundle, run as an AI app runs it', () => {
     // A copy away from the repo: the bundle must need no node_modules.
     dir = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-'));
     for (const f of ['server.cjs', 'mcp-plugin.cjs']) copyFileSync(path.join(dist, f), path.join(dir, f));
-    data = await startFakeDataServer({ schemaPath: defaultSchemaPath(), apiKey: KEY, articles: [{ _id: 'a1', title: 'Tram line approved' }], topics: {} });
+    data = await startFakeDataServer({ schemaPath: defaultSchemaPath(), apiKey: KEY, articles: [{ _id: 'a1', title: 'Tram line approved' }], topics: { 'utrecht trams': ['a1'] } });
   });
 
   after(async () => {
@@ -109,6 +109,44 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.match(second.stderr(), /already running for this home/);
     assert.equal(await second.close(), 0);
     assert.equal(await first.close(), 0);
+  });
+
+  it('with no AI service the assistant writes the topics, and news_for_profile sends only them', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const hint = () => {
+      const env: NodeJS.ProcessEnv = { ...process.env, MERA_POD_HOME: home };
+      delete env.NODE_OPTIONS;
+      const run = spawnSync(process.execPath, [path.join(dir, 'server.cjs'), 'session-hint'], { env, encoding: 'utf8', timeout: 10_000 });
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(run.stderr, '');
+      return run.stdout;
+    };
+    assert.match(hint(), /^Mera News has no profile for this person yet\..*set_up_profile prompt\.\n$/);
+    assert.ok(!existsSync(path.join(home, 'pod.json')), 'the hint never starts the pod');
+
+    const s = startServer(dir, home, { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY });
+    await connect(s);
+    const call = async (name: string, args: object = {}) => {
+      const r = await s.request('tools/call', { name, arguments: args });
+      assert.ok(!r.result?.isError, `${name}: ${JSON.stringify(r)}\n${s.stderr()}`);
+      return JSON.parse(r.result.content[0].text);
+    };
+    const status = await call('get_status');
+    assert.ok(status.problems.some((p: { code: string; who: string }) => p.code === 'no_ai_service' && p.who === 'assistant'), JSON.stringify(status));
+    const added = await call('add_facts', { statements: [{ statement: 'Lives in Utrecht', topics: ['Utrecht trams', 'Utrecht council'] }] });
+    assert.deepEqual(added.topics[0].added.map((t: { text: string }) => t.text), ['Utrecht trams', 'Utrecht council']);
+    const profile = await call('get_profile');
+    assert.equal(profile.facts[0].topicsStatus, 'done');
+    assert.deepEqual(profile.facts[0].topics.map((t: { text: string }) => t.text).sort(), ['Utrecht council', 'Utrecht trams']);
+    const news = await call('news_for_profile');
+    assert.deepEqual(news.groups.map((g: { fact: string; results: { title: string }[] }) => [g.fact, g.results.map((r) => r.title)]), [['Lives in Utrecht', ['Tram line approved']]]);
+    assert.ok(!JSON.stringify(data.requests.map((r) => r.body)).includes('Lives in Utrecht'), 'a fact reached the news server');
+    assert.equal(await s.close(), 0);
+
+    assert.equal(hint(), '', 'a profile and no digest due');
+    writeFileSync(path.join(home, 'data', 'plugins', 'mcp', 'digest.json'), JSON.stringify({ times: ['00:00'], lastAt: new Date(Date.now() - 2 * 86400_000).toISOString() }));
+    assert.match(hint(), /^A Mera News digest is due\..*daily_digest prompt\.\n$/);
+    assert.doesNotMatch(hint(), /Utrecht/);
   });
 
   it('the plugin folder carries this build', () => {
