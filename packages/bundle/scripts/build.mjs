@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 
@@ -31,6 +32,21 @@ const metas = [
   await build({ ...common, metafile: true, entryPoints: [path.join(web, 'src/index.ts')], outfile: path.join(dist, 'web-plugin.cjs') }),
 ].map((r) => r.metafile);
 fs.cpSync(site, path.join(dist, 'web'), { recursive: true });
+// Next's export differs in bytes between machines, so the committed copy is checked by what it was built from instead.
+{
+  const hash = createHash('sha256');
+  const walk = (dir) =>
+    fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((e) => {
+      if (['out', '.next', 'node_modules'].includes(e.name)) return [];
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? walk(p) : [p];
+    });
+  for (const f of [...walk(path.join(web, 'site')), path.join(web, 'package.json'), path.join(web, 'notices.json'), path.join(repo, 'package-lock.json')]) {
+    hash.update(path.relative(repo, f).split(path.sep).join('/'));
+    hash.update(fs.readFileSync(f));
+  }
+  fs.writeFileSync(path.join(dist, 'web', 'BUILD-SOURCE.txt'), `sha256:${hash.digest('hex')}\n`);
+}
 
 // Every package bundled in, with its licence text: the bundle is a copy of them, and their licences ask for it.
 const packages = new Map();

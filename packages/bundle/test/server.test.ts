@@ -302,10 +302,17 @@ describe('the bundle, run as an AI app runs it', () => {
       .split('\n')
       .map((f) => f.slice('plugins/mera-news/server/'.length))
       .sort();
-    assert.deepEqual(committed, fresh, 'plugins/mera-news/server is stale: run npm run build and commit it');
-    for (const f of fresh) {
-      const blob = execFileSync('git', ['show', `HEAD:plugins/mera-news/server/${f}`], { cwd: repo, maxBuffer: 64e6 });
-      assert.ok(blob.equals(readFileSync(path.join(dist, f))), `plugins/mera-news/server/${f} is stale: run npm run build and commit it`);
+    // Next's export differs in bytes between machines (chunk names included): the website is checked by its
+    // pages and by the hash of the sources it was built from; everything else must match byte for byte.
+    const isWeb = (f: string) => f.startsWith('web/');
+    const pages = (list: string[]) => list.filter((f) => isWeb(f) && f.endsWith('.html'));
+    assert.deepEqual(committed.filter((f) => !isWeb(f)), fresh.filter((f) => !isWeb(f)), 'plugins/mera-news/server is stale: run npm run build and commit it');
+    assert.deepEqual(pages(committed), pages(fresh), 'the website pages are stale: run npm run build and commit plugins/mera-news/server');
+    const show = (f: string) => execFileSync('git', ['show', `HEAD:plugins/mera-news/server/${f}`], { cwd: repo, maxBuffer: 64e6 });
+    assert.equal(show('web/BUILD-SOURCE.txt').toString(), readFileSync(path.join(dist, 'web/BUILD-SOURCE.txt'), 'utf8'), 'the website was built from other sources: run npm run build and commit plugins/mera-news/server');
+    for (const f of committed) {
+      const blob = show(f);
+      if (!isWeb(f)) assert.ok(blob.equals(readFileSync(path.join(dist, f))), `plugins/mera-news/server/${f} is stale: run npm run build and commit it`);
       assert.ok(blob.length <= 5 * 1024 * 1024, `${f} is over the plugin directory's 5 MiB`);
     }
   });
