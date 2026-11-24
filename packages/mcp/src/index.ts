@@ -94,11 +94,11 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       listening = server;
       port = (server.address() as AddressInfo).port;
       // The session hint's fact count, fresh at every start; the tools that change facts update it.
-      try {
-        writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: (await v2.services.reading.status()).counts.facts });
-      } catch {
-        ctx.log.warn('The session hint file could not be written.');
-      }
+      // Not awaited: the status waits on the data server, which would hold up the tools.
+      void v2.services.reading
+        .status()
+        .then((s) => writeJson(path.join(ctx.dataDir, HINT_FILE), { facts: s.counts.facts }))
+        .catch(() => ctx.log.warn('The session hint file could not be written.'));
     },
     async stop() {
       const server = listening;

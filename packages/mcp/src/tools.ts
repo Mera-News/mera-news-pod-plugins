@@ -42,7 +42,10 @@ const schemas = {
 /** The version 2 context: add_facts needs `profile.addTopics`. */
 export type McpContext = Extract<PluginContext, { podApi: 2 }>;
 
-const PERSONA = `query GetArticleIdsForPersona($query: PersonaQueryInput!) { articleIdsForPersona(query: $query) { topicResults { topicText articleIds } } }`;
+const PERSONA = `query GetArticleIdsForPersona($query: PersonaQueryInput!) { articleIdsForPersona(query: $query) { topicResults { topicText articleIds hasNextPage nextCursor } } }`;
+/** Ids asked for per topic, and how many more pages news_for_profile may ask for topics it showed in full. */
+const PER_TOPIC = 20;
+const MORE_PAGES = 5;
 /** Stories news_for_profile showed are not shown again for this long. */
 const SHOWN_FOR_MS = 72 * 3600_000;
 
@@ -235,13 +238,20 @@ export function buildServer(ctx: McpContext): McpServer {
   tool('add_facts', writes, async ({ statements: items }) => {
     const result = await services.profile.addFacts(items.map((i) => (typeof i === 'string' ? i : i.statement)));
     const saved = [...result.added, ...result.already];
-    const idOf = (s: string) => (saved.find((f) => f.statement === s.trim()) ?? saved.find((f) => f.statement.toLowerCase() === s.trim().toLowerCase()))?.id;
+    // The pod's own key for a saved statement: case and spacing ignored.
+    const key = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
+    const idOf = (s: string) => (saved.find((f) => f.statement === s.trim()) ?? saved.find((f) => key(f.statement) === key(s)))?.id;
+    const refused = new Set(result.refused.map((r) => key(String(r.statement))));
     // Topics go to facts already saved too, which mends a fact an earlier call left without topics.
     const topics: object[] = [];
     let withTopics = 0;
     for (const item of items) {
-      const id = typeof item === 'string' || !item.topics ? undefined : idOf(item.statement);
-      if (!id || typeof item === 'string' || !item.topics) continue;
+      if (typeof item === 'string' || !item.topics) continue;
+      const id = idOf(item.statement);
+      if (!id) {
+        if (!refused.has(key(item.statement))) topics.push({ statement: item.statement, error: 'This fact was not saved, so its topics were not saved either.' });
+        continue;
+      }
       withTopics++;
       try {
         topics.push({ factId: id, ...(await services.profile.addTopics(id, item.topics)) });
@@ -306,27 +316,47 @@ export function buildServer(ctx: McpContext): McpServer {
     return ok({ results: kept, truncated: true, ...cursor(await page(consumed)) }, estimate);
   });
 
-  tool('news_for_profile', readOnly, async ({ limit }) => {
+  // Not read-only: what it shows is recorded, and not shown again for 72 hours.
+  tool('news_for_profile', writes, async ({ limit }) => {
     const facts: FactView[] = [];
     for (let offset: number | undefined = 0, pages = 0; offset !== undefined && pages < 20; pages++) {
       const page = await services.profile.get(offset ? { offset } : undefined);
       facts.push(...page.facts);
       offset = page.nextOffset;
     }
-    // Each topic text once, with the first fact it came from. Only these texts leave the computer.
+    // Each topic text once, with the first fact it came from, one topic per fact in turn so the newest
+    // facts come as early as the oldest. Only these texts leave the computer.
     const factOf = new Map<string, { fact: FactView; text: string }>();
-    for (const f of facts) for (const t of f.topics) if (!factOf.has(t.text.trim().toLowerCase())) factOf.set(t.text.trim().toLowerCase(), { fact: f, text: t.text.trim() });
+    for (let i = 0, more = true; more; i++) {
+      more = false;
+      for (const f of facts) {
+        const t = f.topics[i];
+        if (!t) continue;
+        more = true;
+        if (!factOf.has(t.text.trim().toLowerCase())) factOf.set(t.text.trim().toLowerCase(), { fact: f, text: t.text.trim() });
+      }
+    }
     if (factOf.size === 0) {
       const hint = facts.length ? 'The saved facts have no topics yet. Call add_facts again with the same statements and 4 to 8 news topics for each.' : 'Nothing is saved yet. Offer to set up the news profile.';
       return ok({ groups: [], hint }, estimate);
     }
     const topics = [...factOf.values()].map((v) => v.text).slice(0, 200); // the server's limit per request
-    type Persona = { articleIdsForPersona: { topicResults: { topicText: string; articleIds: string[] }[] } };
-    const lists = (await ask<Persona>(services.news.graphql, 'GetArticleIdsForPersona', PERSONA, { query: { limitPerTopic: 5, maxArticles: 150, topics: topics.map((text) => ({ text })) } })).articleIdsForPersona.topicResults;
+    type TopicResult = { topicText: string; articleIds: string[]; hasNextPage?: boolean; nextCursor?: string | null };
+    // No total cap: the server would cut the last topics first, which are the newest facts'.
+    const persona = async (list: { text: string; afterCursor?: string }[]) =>
+      (await ask<{ articleIdsForPersona: { topicResults: TopicResult[] } }>(services.news.graphql, 'GetArticleIdsForPersona', PERSONA, { query: { limitPerTopic: PER_TOPIC, topics: list } })).articleIdsForPersona.topicResults;
 
     return serially(shownFile, async () => {
       const now = Date.now();
       const shown = Object.fromEntries(Object.entries(readJson<Record<string, number>>(shownFile) ?? {}).filter(([, at]) => typeof at === 'number' && now - at < SHOWN_FOR_MS));
+      let lists = await persona(topics.map((text) => ({ text })));
+      // A topic's best matches stay on top for a day, so a topic whose page was all shown is asked for its next page.
+      for (let round = 0; round < MORE_PAGES; round++) {
+        const spent = lists.filter((l) => l.hasNextPage && l.nextCursor && l.articleIds.every((id) => shown[id]));
+        if (spent.length === 0) break;
+        const next = await persona(spent.map((l) => ({ text: l.topicText, afterCursor: l.nextCursor! })));
+        lists = lists.map((l) => (spent.includes(l) ? (next[spent.indexOf(l)] ?? { ...l, articleIds: [] }) : l));
+      }
       // Round robin over the topics, so each one's best match comes before any topic's second.
       const topicOf = new Map<string, string>();
       for (let rank = 0; topicOf.size < limit && lists.some((l) => rank < l.articleIds.length); rank++) {

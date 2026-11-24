@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { FactView } from 'mera-news-pod/plugin-api';
@@ -24,7 +24,16 @@ function newsServer(link = (id: string) => `https://news.example/${id}`) {
     const b = raw as Body;
     calls.push(b);
     if (b.operationName === 'GetArticleIdsForPersona') {
-      return { data: { articleIdsForPersona: { topicResults: b.variables.query.topics.map((t: { text: string }) => ({ topicText: t.text, articleIds: ARTICLES[t.text.toLowerCase()] ?? [] })) } } };
+      // As the server pages: `limitPerTopic` ids after the topic's `afterCursor`, best first.
+      const per = b.variables.query.limitPerTopic ?? 20;
+      const topicResults = b.variables.query.topics.map((t: { text: string; afterCursor?: string }) => {
+        const all = ARTICLES[t.text.toLowerCase()] ?? [];
+        const from = t.afterCursor ? all.indexOf(t.afterCursor) + 1 : 0;
+        const articleIds = all.slice(from, from + per);
+        const hasNextPage = from + per < all.length;
+        return { topicText: t.text, articleIds, hasNextPage, nextCursor: hasNextPage ? articleIds.at(-1) : null };
+      });
+      return { data: { articleIdsForPersona: { topicResults } } };
     }
     if (b.operationName === 'GetArticlesForTopicsByIds') {
       return { data: { articlesForTopicsByIds: { articles: b.variables.articleIds.map((id: string) => ({ _id: id, title: `Story ${id}`, article_url: link(id), language_code: 'nl', publication_name: 'De Krant', description: 'SECRET BODY TEXT' })) } } };
@@ -43,7 +52,8 @@ test('news_for_profile: sends only topic texts, groups by fact, and never shows 
     const persona = news.calls[0];
     assert.equal(persona.operationName, 'GetArticleIdsForPersona');
     // The same topic of two facts goes once; the query has no date and no fact.
-    assert.deepEqual(persona.variables.query, { limitPerTopic: 5, maxArticles: 150, topics: [{ text: 'utrecht council' }, { text: 'utrecht trams' }, { text: 'nurse pay' }] });
+    // Topics are taken one per fact in turn, and no total cap lets the server drop the last facts' topics.
+    assert.deepEqual(persona.variables.query, { limitPerTopic: 20, topics: [{ text: 'utrecht council' }, { text: 'nurse pay' }, { text: 'utrecht trams' }] });
     const sent = JSON.stringify(news.calls);
     for (const f of FACTS) assert.ok(!sent.includes(f.statement), `the fact "${f.statement}" left the computer`);
     assert.doesNotMatch(sent, /Lives in|Works night/);
@@ -109,6 +119,44 @@ test('news_for_profile: a reply cut to fit counts only what it carries as shown'
   }
 });
 
+test('news_for_profile: once a topic\'s first page was shown, the next call pages past it', async () => {
+  ARTICLES['local news'] = Array.from({ length: 45 }, (_, i) => `c${i}`);
+  const news = newsServer();
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f9', 'Follows the local news', ['local news'])] }) }, news }) });
+  try {
+    const c = await r.client();
+    const ids: string[] = [];
+    for (let calls = 0; ; calls++) {
+      assert.ok(calls < 10);
+      const got = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 25 } }));
+      if (got.groups.length === 0) break;
+      ids.push(...got.groups[0].results.map((x: any) => x.id));
+    }
+    assert.deepEqual(ids, ARTICLES['local news'], 'the 21st story and later came on later calls');
+    const cursors = news.calls.filter((b) => b.operationName === 'GetArticleIdsForPersona').flatMap((b) => b.variables.query.topics.map((t: any) => t.afterCursor ?? null));
+    assert.ok(cursors.includes('c19') && cursors.includes('c39'), JSON.stringify(cursors));
+  } finally {
+    delete ARTICLES['local news'];
+    await r.stop();
+  }
+});
+
+test('news_for_profile: the newest facts get stories on the first call, however many topics there are', async () => {
+  const facts = Array.from({ length: 10 }, (_, f) => fact(`f${f}`, `Fact number ${f}`, Array.from({ length: 6 }, (_, t) => `topic ${f}-${t}`)));
+  for (const f of facts) for (const t of f.topics) ARTICLES[t.text] = [`${t.text}-a`, `${t.text}-b`];
+  const news = newsServer();
+  const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts }) }, news }) });
+  try {
+    const c = await r.client();
+    const got = json(await c.callTool({ name: 'news_for_profile', arguments: { limit: 10 } }));
+    assert.deepEqual(got.groups.map((g: any) => g.factId).sort(), facts.map((f) => f.id).sort(), 'every fact has a story');
+    assert.equal(news.calls[0].variables.query.maxArticles, undefined);
+  } finally {
+    for (const f of facts) for (const t of f.topics) delete ARTICLES[t.text];
+    await r.stop();
+  }
+});
+
 test('news_for_profile: no topics yet asks for them, without a request', async () => {
   const news = newsServer();
   const r = await run({ services: fakeServices({ profile: { get: async () => ({ facts: [fact('f1', 'Lives in Utrecht', [])] }) }, news }) });
@@ -158,6 +206,12 @@ test('add_facts: topics go to new and already saved facts, never to a refused on
     ai = { host: 'ai.example', model: 'm' };
     assert.match(json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } })).note, /within a minute or two/);
 
+    // The pod matches a saved fact with case and spacing ignored, and hands back the saved wording.
+    given.length = 0;
+    const spaced = json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht', { statement: 'Works  as a  Nurse', topics: ['nurse pay'] }] } }));
+    assert.deepEqual(given, [['f2', ['nurse pay']]]);
+    assert.deepEqual(spaced.topics, [{ factId: 'f2', error: 'Topic 1 is longer than 80 characters.' }]);
+
     const bad = json(await c.callTool({ name: 'add_facts', arguments: { statements: [{ statement: 'x', topics: Array(13).fill('t') }] } }));
     assert.equal(bad.code, 'bad_input');
   } finally {
@@ -195,10 +249,31 @@ test('digest: set_reading saves the times, get_status says when one is due, dige
   }
 });
 
-test('the plugin notes the fact count at start for the session hint, and nothing else', async () => {
-  const r = await run({ services: fakeServices({ reading: { status: async () => status({ counts: { facts: 0, topics: 0, topicsPending: 0, picks: 0 } }) } }) });
+test('add_facts: topics for a fact that was neither saved nor refused say so', async () => {
+  const profile = { addFacts: async () => ({ added: [], already: [], refused: [] }) };
+  const r = await run({ services: fakeServices({ profile }) });
   try {
-    assert.equal(readFileSync(path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json'), 'utf8'), '{"facts":0}\n');
+    const c = await r.client();
+    const res = json(await c.callTool({ name: 'add_facts', arguments: { statements: [{ statement: 'Lives in Utrecht', topics: ['Utrecht council'] }] } }));
+    assert.equal(res.topics.length, 1);
+    assert.equal(res.topics[0].statement, 'Lives in Utrecht');
+    assert.match(res.topics[0].error, /not saved/);
+  } finally {
+    await r.stop();
+  }
+});
+
+test('the plugin notes the fact count at start for the session hint, without waiting for it to start', async () => {
+  let answer!: () => void;
+  const asked = new Promise<void>((resolve) => (answer = resolve));
+  // The pod's status waits on the data server, which can take many seconds.
+  const r = await run({ services: fakeServices({ reading: { status: () => asked.then(() => status({ counts: { facts: 0, topics: 0, topicsPending: 0, picks: 0 } })) } }) });
+  try {
+    const file = path.join(r.home, 'data', 'plugins', 'mcp', 'hint.json');
+    assert.ok(!existsSync(file), 'started before the status answered');
+    answer();
+    for (let i = 0; !existsSync(file) && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(readFileSync(file, 'utf8'), '{"facts":0}\n');
   } finally {
     await r.stop();
   }
