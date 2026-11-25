@@ -59,7 +59,8 @@ export async function run(opts: { status?: () => Promise<PodStatus>; services?: 
       const h: Record<string, string> = { host: `127.0.0.1:${port()}` };
       for (const [k, v] of Object.entries(headers)) if (v === undefined) delete h[k];
       else h[k] = v;
-      const req = http.request({ host: '127.0.0.1', port: port(), path: p, method, headers: h, setHost: false }, (res) => {
+      // A fresh connection per request: a kept-alive socket can outlive a restart on the same port and be reset.
+      const req = http.request({ host: '127.0.0.1', port: port(), path: p, method, headers: h, setHost: false, agent: false }, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8'), headers: res.headers }));
