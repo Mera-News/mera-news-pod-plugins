@@ -37,8 +37,11 @@ export const webWanted = (env: NodeJS.ProcessEnv) => !/^(false|0|no|off)$/i.test
  * (they change when the app updates the plugin), and add or remove the bundled website as the setting
  * says. A website file that is missing is removed from the file too, because the pod stops when a
  * plugin it names cannot be found. Returns the mcp plugin's port.
+ *
+ * `addWeb: false` is for serve mode, which has no app settings: it moves or keeps a website entry
+ * that is there and never adds one, so a website the person turned off stays off.
  */
-export async function ensureConfig(home: string, serverDir: string, env: NodeJS.ProcessEnv = process.env): Promise<number> {
+export async function ensureConfig(home: string, serverDir: string, env: NodeJS.ProcessEnv = process.env, { addWeb = true } = {}): Promise<number> {
   const file = path.join(home, 'pod.json');
   const mcpFile = path.join(serverDir, MCP_FILE);
   const webFile = path.join(serverDir, WEB_FILE);
@@ -53,7 +56,7 @@ export async function ensureConfig(home: string, serverDir: string, env: NodeJS.
       reading: { everyMinutes: 15 },
       language: locale.language,
       ...(locale.region ? { region: locale.region } : {}),
-      plugins: [mcp, ...(wantWeb ? [await entry(webFile)] : [])],
+      plugins: [mcp, ...(wantWeb && addWeb ? [await entry(webFile)] : [])],
     };
     fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     const secrets = path.join(home, 'secrets.json');
@@ -73,7 +76,7 @@ export async function ensureConfig(home: string, serverDir: string, env: NodeJS.
   const web = plugins.find(isWeb);
   const bundled = web?.package.endsWith(WEB_FILE);
   if (web && bundled && !wantWeb) plugins.splice(plugins.indexOf(web), 1);
-  else if (wantWeb && (!web || bundled)) {
+  else if (wantWeb && (web ? bundled : addWeb)) {
     const ours = web ?? (await entry(webFile));
     ours.package = webFile;
     // After mcp: the plugins start in order, and the website must never hold up the tools.

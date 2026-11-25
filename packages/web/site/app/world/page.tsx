@@ -40,6 +40,8 @@ function World() {
 
   const show = (next: { c?: string; q?: string }) =>
     router.push(next.q ? `/world/?q=${encodeURIComponent(next.q)}` : next.c && next.c !== WORLD ? `/world/?c=${next.c}` : '/world/');
+  const find = (code: string) => countries?.all.find((x) => x.code === code) ?? countries?.yours.find((x) => x.code === code);
+  const flagOf = (code: string) => find(code)?.flag;
   const nameOf = (code: string) => (code === WORLD ? 'the world' : (countries?.all.find((x) => x.code === code) ?? countries?.yours.find((x) => x.code === code))?.name ?? code);
   // The world, the person's countries from their places, and a country chosen here while it is shown.
   const chips = [WORLD, ...(countries?.yours.map((x) => x.code) ?? [])];
@@ -49,7 +51,7 @@ function World() {
   return (
     <>
       {phone ? (
-        <PhoneWorldBar chips={chips} scope={scope} q={q} nameOf={nameOf} all={countries?.all} show={show} />
+        <PhoneWorldBar chips={chips} scope={scope} q={q} nameOf={nameOf} flagOf={flagOf} all={countries?.all} show={show} />
       ) : (
       <TopBar end={<SearchField placeholder="Search all news" value={q} onSearch={(text) => show(text ? { q: text } : { c: scope })} />}>
         <ToggleGroup aria-label="Top stories for" value={q ? [] : [scope]} onValueChange={(v: unknown[]) => typeof v[0] === 'string' && show({ c: v[0] })} className="flex-wrap">
@@ -166,12 +168,12 @@ function TopStories({ scope, name, phone }: { scope: string; name: string; phone
   const reports = stories.reduce((n, s) => n + s.reports, 0);
   const more = state !== 'end' ? '+' : '';
   return (
-    <section aria-labelledby="top-title" className="flex flex-col pb-4">
+    <section aria-labelledby="top-title" className="flex flex-col pb-4 max-md:pt-3">
       {phone ? (
-        <PhoneLead id="top-title" title={`Top stories in ${where}`}>
-          {stories.length ? `${stories.length.toLocaleString('en')}${more} stories from ${reports.toLocaleString('en')}${more} reports. ` : ''}Most reported first, from the last 24 hours. No AI ranks
-          this list.
-        </PhoneLead>
+        // The pills already say where; how the list is made sits behind the header's help button, as in the app.
+        <h2 id="top-title" className="sr-only">
+          Top stories in {where}
+        </h2>
       ) : (
         <Heading
           id="top-title"

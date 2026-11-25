@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { after, before, describe, it } from 'node:test';
-import { defaultSchemaPath, startFakeDataServer, type FakeDataServer } from 'mera-news-pod/testing';
+import { defaultSchemaPath, startFakeDataServer, startFakeModel, type FakeDataServer } from 'mera-news-pod/testing';
 
 const pkg = path.resolve(__dirname, '..');
 const repo = path.resolve(pkg, '../..');
@@ -331,6 +331,61 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.match(bridged, /already running for this home/);
     assert.equal(code, 0, err);
     assert.equal(out, '', 'serve mode writes nothing to stdout');
+  });
+
+  it('serve mode probes the AI service once, after it takes over, and reaches an AI service set while it waited', async () => {
+    const [first, second] = await Promise.all([startFakeModel(), startFakeModel()]);
+    const probes = (m: typeof first) => m.bodies.filter((b) => b.messages.some((x) => x.content === 'Say ok.')).length;
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const env = { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY };
+    const file = path.join(home, 'pod.json');
+    const setAi = (baseUrl: string) => writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), ai: { baseUrl, model: 'm' } }));
+    const init = startServer(dir, home, env);
+    await connect(init);
+    assert.equal(await init.close(), 0);
+    setAi(first.baseUrl);
+    const app = startServer(dir, home, env);
+    await connect(app);
+
+    const serveEnv: NodeJS.ProcessEnv = { ...process.env, MERA_POD_HOME: home, ...env };
+    delete serveEnv.NODE_OPTIONS;
+    const serve = spawn(process.execPath, [path.join(dir, 'server.cjs'), 'serve'], { env: serveEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+    process.on('exit', () => serve.kill('SIGKILL'));
+    let err = '';
+    serve.stderr.on('data', (c) => (err += c));
+    const exited = new Promise<number | null>((r) => serve.once('exit', (code) => r(code)));
+    const until = async (ok: () => boolean, ms = 40_000) => {
+      const end = Date.now() + ms;
+      while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 200));
+      return ok();
+    };
+    const waited = await until(() => /open in an app/.test(err));
+    // Two more tries while the app holds the home.
+    await new Promise((r) => setTimeout(r, 21_000));
+    const firstProbes = probes(first);
+    // The person sets another AI service in the app, then quits it.
+    setAi(second.baseUrl);
+    assert.equal(await app.close(), 0);
+    const tookOver = await until(() => /running on its own/.test(err));
+    await until(() => probes(second) > 0, 15_000);
+    await new Promise((r) => setTimeout(r, 1000));
+    const serveProbes = probes(second);
+    const again = startServer(dir, home, env);
+    await connect(again).catch(() => []);
+    const added = await again.request('tools/call', { name: 'add_facts', arguments: { statements: [{ statement: 'Lives in Utrecht' }] } }).catch((e) => ({ error: e }));
+    const reached = await until(() => second.bodies.length > probes(second));
+    const bridged = again.stderr();
+    assert.equal(await again.close(), 0);
+    serve.kill('SIGTERM');
+    const code = await exited;
+    await Promise.all([first.close(), second.close()]);
+    // After everything stopped, so a failure leaves nothing running.
+    assert.ok(waited && tookOver, err);
+    assert.equal(firstProbes, 1, `only the app's own start probed the first AI service: ${err}`);
+    assert.equal(serveProbes, 1, `one probe after the takeover: ${err}`);
+    assert.ok(reached, `no model call reached the AI service set while serve waited: ${JSON.stringify(added)}\n${bridged}\n${err}`);
+    assert.doesNotMatch(err, /blocked request/);
+    assert.equal(code, 0, err);
   });
 
   it('the plugin folder carries this build', () => {

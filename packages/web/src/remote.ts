@@ -133,8 +133,17 @@ export function createRemote(dir: string) {
     },
     clearPairing: () => rmSync(file(PAIRING_FILE), { force: true }),
 
-    /** Swaps a code for a device token: 5 tries a minute, 10 wrong codes close the pairing, and a code works once. */
-    pair(code: unknown, name: string, now = Date.now()): PairResult {
+    /** Every paired phone and any code on screen: a phone paired for one address never comes back with another. */
+    clearPhones() {
+      rmSync(file(PAIRING_FILE), { force: true });
+      rmSync(file(DEVICES_FILE), { force: true });
+    },
+
+    /**
+     * Swaps a code for a device token: 5 tries a minute, 10 wrong codes close the pairing, and a code
+     * works once. A phone already paired (its token in `current`) gets a new token in its own entry.
+     */
+    pair(code: unknown, name: string, now = Date.now(), current?: string): PairResult {
       while (tries.length && now - tries[0] >= 60_000) tries.shift();
       if (tries.length >= TRIES_PER_MINUTE) return { ok: false, status: 429, error: 'too_many_tries' };
       tries.push(now);
@@ -145,11 +154,12 @@ export function createRemote(dir: string) {
         writeSecret(file(PAIRING_FILE), { ...pending, wrong: pending.wrong + 1 });
         return { ok: false, status: 403, error: 'wrong_code' };
       }
-      const list = devices();
+      const same = this.device(current);
+      const list = devices().filter((d) => d.id !== same?.id);
       if (list.length >= MAX_DEVICES) return { ok: false, status: 409, error: 'too_many_devices' };
       rmSync(file(PAIRING_FILE), { force: true });
       const token = randomBytes(32).toString('base64url');
-      const device: Device = { id: randomBytes(8).toString('hex'), name, tokenHash: sha256(token), pairedAt: new Date(now).toISOString() };
+      const device: Device = { id: same?.id ?? randomBytes(8).toString('hex'), name, tokenHash: sha256(token), pairedAt: new Date(now).toISOString() };
       writeSecret(file(DEVICES_FILE), [...list, device]);
       return { ok: true, device, token };
     },

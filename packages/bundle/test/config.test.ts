@@ -76,3 +76,17 @@ test('the website always starts after mcp, and a website the person installed is
   await ensureConfig(h, dir, { MERA_POD_WEB: 'false' });
   assert.deepEqual(plugins(h), ['mera-news-pod-mcp', 'mera-news-pod-web']);
 });
+
+test('serve mode, which has no app settings, never adds the website the person turned off, and still moves one that is there', async () => {
+  const h = home();
+  const dir = serverDir();
+  await ensureConfig(h, dir, { MERA_POD_WEB: 'false' });
+  const before = readFileSync(path.join(h, 'pod.json'), 'utf8');
+  await ensureConfig(h, dir, {}, { addWeb: false });
+  assert.equal(readFileSync(path.join(h, 'pod.json'), 'utf8'), before, 'pod.json is unchanged');
+
+  await ensureConfig(h, dir, {});
+  const updated = serverDir();
+  await ensureConfig(h, updated, {}, { addWeb: false });
+  assert.deepEqual(plugins(h), [path.join(updated, 'mcp-plugin.cjs'), path.join(updated, 'web-plugin.cjs')]);
+});

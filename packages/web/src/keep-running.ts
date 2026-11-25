@@ -96,6 +96,11 @@ export function createKeepRunning(deps: KeepRunningDeps) {
   };
   /** Ours: the serve mode, for this home. A LaunchAgent the person wrote under the same name (the pod's guide shows one) is never touched. */
   const ours = (text: string) => text.includes('<string>serve</string>') && text.includes(`<key>MERA_POD_HOME</key><string>${xml(deps.home)}</string>`);
+  /** Ours, but naming a Node.js that is gone (a version manager's version was removed): launchd cannot start it. */
+  const broken = (text: string) => {
+    const node = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(text)?.[1];
+    return !node || !fs.existsSync(unxml(node));
+  };
   const availableNow = () => {
     const text = read();
     return supported === 'yes' && text !== null && !ours(text) ? 'other_agent' : supported;
@@ -124,6 +129,7 @@ export function createKeepRunning(deps: KeepRunningDeps) {
     const available = availableNow();
     const on = available === 'yes' && fs.existsSync(file);
     if (available !== 'yes') return { available, on };
+    const text = on ? read() : null;
     const n = await node();
     let copiesKey = false;
     try {
@@ -134,6 +140,7 @@ export function createKeepRunning(deps: KeepRunningDeps) {
     return {
       available,
       on,
+      broken: text !== null && broken(text),
       node: n.node,
       oldNode: n.node ? null : n.oldNode,
       minNode: MIN_NODE.replace(/\.0$/, ''),
@@ -146,7 +153,8 @@ export function createKeepRunning(deps: KeepRunningDeps) {
 
   async function turnOn() {
     if (availableNow() !== 'yes') throw new NewsError('not_available', 'Mera News can keep running on its own only on macOS, from the Mera News extension or plugin, and only when no other news.mera.pod LaunchAgent exists.', 'Keep your pod running yourself instead.');
-    if (fs.existsSync(file)) return state();
+    const current = read();
+    if (current !== null && !broken(current)) return state();
     const { node: found } = await node();
     if (!found) throw new NewsError('no_node', `Mera News needs Node.js ${MIN_NODE.replace(/\.0$/, '')} or newer on this Mac to keep running on its own.`, 'Install it, then try again.');
     const key = keyToCopy();
@@ -178,8 +186,8 @@ export function createKeepRunning(deps: KeepRunningDeps) {
   }
 
   /**
-   * At an app's start: if the agent names a server.cjs that is gone (an update moved the plugin),
-   * point it at this one and start it again. One that still exists is left alone, so two apps
+   * At an app's start: if the agent names a server.cjs that is gone (an update moved the plugin), or
+   * a Node.js that is gone, point it at this one and a Node.js found now, and start it again. One that still exists is left alone, so two apps
    * sharing the home never take the agent from each other. Never throws.
    */
   async function refresh(): Promise<void> {
@@ -187,7 +195,7 @@ export function createKeepRunning(deps: KeepRunningDeps) {
       const text = read();
       if (supported !== 'yes' || text === null || !ours(text)) return;
       const named = /<string>([^<]*server\.cjs)<\/string>/.exec(text)?.[1];
-      if (named && fs.existsSync(unxml(named))) return;
+      if (named && fs.existsSync(unxml(named)) && !broken(text)) return;
       const { node: found } = await node();
       if (!found) return;
       writeFile(file, plist(found.path, deps.serverFile!, deps.home), 0o644);

@@ -1,6 +1,6 @@
 'use client';
 
-import { Globe, Plus, Search, X } from 'lucide-react';
+import { CircleHelp, Globe, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PhoneHeader } from '@/components/phone/ui';
 import type { Country } from '@/lib/news';
@@ -56,7 +56,8 @@ function CountryPicker({ open, countries, onPick, onClose }: { open: boolean; co
         <ul className="flex-1 overflow-y-auto px-2 pb-[calc(env(safe-area-inset-bottom)+16px)]">
           {shown.map((c) => (
             <li key={c.code}>
-              <button type="button" onClick={() => onPick(c.code)} className="flex min-h-12 w-full items-center rounded-[12px] px-3 text-left text-[16px] active:bg-muted">
+              <button type="button" onClick={() => onPick(c.code)} className="flex min-h-12 w-full items-center gap-3 rounded-[12px] px-3 text-left text-[16px] active:bg-muted">
+                {c.flag && <span aria-hidden>{c.flag}</span>}
                 {c.name}
               </button>
             </li>
@@ -77,6 +78,7 @@ export function PhoneWorldBar({
   scope,
   q,
   nameOf,
+  flagOf,
   all,
   show,
 }: {
@@ -84,10 +86,12 @@ export function PhoneWorldBar({
   scope: string;
   q: string;
   nameOf: (code: string) => string;
+  flagOf: (code: string) => string | undefined;
   all: Country[] | undefined;
   show: (next: { c?: string; q?: string }) => void;
 }) {
   const [searching, setSearching] = useState(!!q);
+  const [help, setHelp] = useState(false);
   const [text, setText] = useState(q);
   const [picking, setPicking] = useState(false);
   useEffect(() => {
@@ -135,10 +139,20 @@ export function PhoneWorldBar({
       ) : (
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-[20px] font-bold tracking-[-0.015em]">Top headlines</h1>
-          <button type="button" aria-label="Search all news" onClick={() => setSearching(true)} className={ROUND}>
-            <Search aria-hidden className="size-5" />
-          </button>
+          <div className="flex gap-2">
+            <button type="button" aria-label="How this list is made" aria-expanded={help} aria-controls="world-help" onClick={() => setHelp(!help)} className={`${ROUND} aria-expanded:border-primary aria-expanded:text-accent-foreground`}>
+              <CircleHelp aria-hidden className="size-5" />
+            </button>
+            <button type="button" aria-label="Search all news" onClick={() => setSearching(true)} className={ROUND}>
+              <Search aria-hidden className="size-5" />
+            </button>
+          </div>
         </div>
+      )}
+      {help && !searching && (
+        <p id="world-help" className="text-[14px] text-pretty text-muted-foreground">
+          The most reported stories of the last 24 hours, most reported first. No AI ranks this list.
+        </p>
       )}
       {!q && (
         <div role="group" aria-label="Top stories for" className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
@@ -150,7 +164,7 @@ export function PhoneWorldBar({
               onClick={() => show({ c: code })}
               className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border bg-card px-4 text-[16px] font-semibold text-foreground/85 aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
             >
-              {code === 'GLOBAL' && <Globe aria-hidden className="size-[18px]" />}
+              {code === 'GLOBAL' ? <Globe aria-hidden className="size-[18px]" /> : flagOf(code) && <span aria-hidden>{flagOf(code)}</span>}
               {code === 'GLOBAL' ? 'World' : nameOf(code)}
             </button>
           ))}

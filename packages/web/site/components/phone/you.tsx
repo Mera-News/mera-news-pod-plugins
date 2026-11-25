@@ -1,11 +1,11 @@
 'use client';
 
-import { ChevronDown, Settings, UserRound } from 'lucide-react';
+import { ChevronDown, MapPin, Settings, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Panel, PhoneHeader, Pills } from '@/components/phone/ui';
 import { PhonesSection } from '@/components/phones';
 import { AddFact, FactBoard, SetupPanel, statusLine, type Fact, type Setup } from '@/components/profile';
-import { onPhone, type ApiError, type Status } from '@/components/session';
+import { onPhone, useApi, type ApiError, type Status } from '@/components/session';
 import { AiServiceSection, DigestSection, KeepRunningSection, PodSection } from '@/components/settings';
 import { Button } from '@/components/ui/button';
 import { plural } from '@/lib/news';
@@ -34,6 +34,51 @@ function FactRow({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boolean; onCha
         </div>
       )}
     </li>
+  );
+}
+
+interface Place {
+  name: string;
+  role?: string;
+}
+
+const ROLE: Record<string, string> = { home: 'Home', work: 'Work', travel: 'Travel', family: 'Family', partner_family: "Partner's family", interest: 'Interest' };
+
+/** The places Mera News took from the person's facts, as the app's Places card: each with its role. */
+function PlacesCard() {
+  const get = useApi();
+  const [places, setPlaces] = useState<Place[] | null>(null);
+  useEffect(() => {
+    // The same answer World uses; a failure only leaves the card out.
+    get<{ places?: Place[] }>('/api/countries/').then((c) => setPlaces(c.places ?? []), () => setPlaces(null));
+  }, [get]);
+  if (!places) return null;
+  return (
+    <Panel as="section" aria-labelledby="places-title" className="overflow-hidden">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <h2 id="places-title" className="text-[17px] font-bold">
+          Places
+        </h2>
+        <span className="text-muted-foreground tabular-nums">{places.length.toLocaleString('en')}</span>
+      </div>
+      {places.length === 0 ? (
+        <p className="p-4 text-pretty text-muted-foreground">No places yet. Mera News finds them in your facts, such as where you live or work.</p>
+      ) : (
+        <ul>
+          {places.map((p, i) => (
+            <li key={`${p.name}-${p.role ?? ''}-${i}`} className="flex min-h-14 items-center gap-3 border-t px-4 py-3 first:border-t-0">
+              <span className="flex-1 text-[16px] leading-snug text-pretty">{p.name}</span>
+              {p.role && ROLE[p.role] && (
+                <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[14px] font-semibold text-accent-foreground">
+                  <MapPin aria-hidden className="size-4" />
+                  {ROLE[p.role]}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }
 
@@ -107,6 +152,7 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
               <ul>{profile?.facts.map((f) => <FactRow key={f.id} fact={f} hasAi={hasAi} onChanged={reload} />)}</ul>
             )}
           </Panel>
+          <PlacesCard />
           <Panel className="p-4">
             <AddFact hasAi={hasAi} onSaved={reload} className="max-w-none px-0" />
           </Panel>

@@ -46,7 +46,7 @@ export function PhoneHeader({ children, className }: { children: ReactNode; clas
   return (
     <header
       className={cn(
-        'sticky top-0 z-20 flex items-center justify-center gap-3 border-b bg-background/85 px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-2.5 backdrop-blur-xl',
+        'sticky top-0 z-20 flex items-center justify-center gap-3 border-b bg-header px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-2.5 backdrop-blur-xl',
         className,
       )}
     >
@@ -62,8 +62,11 @@ const LEVEL_CHIP: Record<Level, string> = {
   low: 'bg-[#eceff1] text-[#37474f]',
 };
 
+// The app's short words; the desktop keeps Medium.
+const PHONE_LABEL: Record<Level, string> = { ...LEVEL_LABEL, medium: 'Med' };
+
 export function LevelChip({ level }: { level: Level }) {
-  return <span className={cn('inline-flex h-6 items-center rounded-full px-2.5 text-[13px] font-semibold', LEVEL_CHIP[level])}>{LEVEL_LABEL[level]}</span>;
+  return <span className={cn('inline-flex h-6 items-center rounded-full px-2.5 text-[13px] font-semibold', LEVEL_CHIP[level])}>{PHONE_LABEL[level]}</span>;
 }
 
 const names = (() => {
@@ -169,7 +172,7 @@ export function NoteBox({ top, children }: { top: ReactNode; children: ReactNode
   return (
     <div className="flex flex-col gap-2 rounded-[14px] bg-note p-3">
       <div className="flex min-h-6 items-center justify-between gap-2">{top}</div>
-      <div className="text-[15px] leading-snug font-medium text-pretty">{children}</div>
+      <div className="text-[15px] leading-snug font-semibold text-pretty">{children}</div>
     </div>
   );
 }

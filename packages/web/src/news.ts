@@ -3,7 +3,10 @@
 // allows and keeps the key. A reply carries only the fields named here, never a description or any
 // other article text.
 import type { PodServices } from 'mera-news-pod/plugin-api';
-import { alpha3Of, countryName } from './countries';
+import { alpha3Of, countryName, flagOf } from './countries';
+
+/** The roles the client gives a place. */
+const PLACE_ROLES = ['home', 'work', 'travel', 'family', 'partner_family', 'interest'];
 
 type Services = Pick<PodServices, 'news' | 'display'>;
 
@@ -47,6 +50,7 @@ export interface Story extends Report {
 export interface Country {
   code: string;
   name: string;
+  flag?: string;
 }
 
 interface ArticleIn {
@@ -164,7 +168,7 @@ export async function search(services: Services, query: string) {
 /** Tables a countries read already holds, so the next snapshot sends rows for places only. */
 export function createCountries(services: Services) {
   let held: Record<string, string> = {};
-  return async (): Promise<{ yours: Country[]; all: Country[] }> => {
+  return async (): Promise<{ yours: Country[]; all: Country[]; places: { name: string; role?: string }[] }> => {
     const [snapshot, all] = await Promise.all([
       services.display.snapshot({ hashes: held }),
       ask<{ allCountries: string[] }>(services, 'AllCountries', COUNTRIES, {}),
@@ -177,7 +181,18 @@ export function createCountries(services: Services) {
       .sort((a, b) => Number(b.weight ?? 0) - Number(a.weight ?? 0));
     const yours = [...new Set(places.flatMap((r) => alpha3Of(r.country_code as string) ?? []))];
     const codes = [...new Set((Array.isArray(all.allCountries) ? all.allCountries : []).filter((c) => typeof c === 'string' && /^[A-Z]{3}$/.test(c)))];
-    const named = (code: string): Country => ({ code, name: countryName(code) });
-    return { yours: yours.map(named), all: codes.map(named).sort((a, b) => a.name.localeCompare(b.name, 'en')) };
+    const named = (code: string): Country => {
+      const flag = flagOf(code);
+      return { code, name: countryName(code), ...(flag ? { flag } : {}) };
+    };
+    // Each place as Profile lists it: the city where there is one, then the country, and its role.
+    const placeList = places.flatMap((r) => {
+      const code = alpha3Of(r.country_code as string);
+      if (!code) return [];
+      const city = typeof r.city === 'string' && r.city.trim() ? `${r.city.trim()}, ` : '';
+      const role = typeof r.role === 'string' && PLACE_ROLES.includes(r.role) ? { role: r.role } : {};
+      return [{ name: `${city}${countryName(code)}`, ...role }];
+    });
+    return { yours: yours.map(named), all: codes.map(named).sort((a, b) => a.name.localeCompare(b.name, 'en')), places: placeList };
   };
 }

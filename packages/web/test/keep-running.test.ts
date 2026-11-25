@@ -7,6 +7,8 @@ import { test } from 'node:test';
 import { atLeast, createKeepRunning, LABEL, plist, type KeepRunningDeps, type NodeFound } from '../src/keep-running';
 
 const KEY = 'news-key-from-the-app-0123456789';
+// A Node.js that exists on every machine the tests run on: an agent naming a missing one is broken.
+const NODE = process.execPath;
 
 function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBootstrap?: boolean } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keep-running-'));
@@ -22,7 +24,7 @@ function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBoots
     agentsDir: path.join(root, 'LaunchAgents'),
     platform: 'darwin',
     uid: 501,
-    nodes: async () => over.found ?? [{ path: '/opt/homebrew/bin/node', version: '24.4.1' }],
+    nodes: async () => over.found ?? [{ path: NODE, version: '24.4.1' }],
     hasBrew: () => true,
     launchctl(args, later = false) {
       calls.push({ args, later });
@@ -44,7 +46,8 @@ test('turning it on writes the LaunchAgent for this home and these server files,
   assert.deepEqual(await k.state(), {
     available: 'yes',
     on: false,
-    node: { path: '/opt/homebrew/bin/node', version: '24.4.1' },
+    broken: false,
+    node: { path: NODE, version: '24.4.1' },
     oldNode: null,
     minNode: '22.13',
     install: 'brew install node',
@@ -55,10 +58,10 @@ test('turning it on writes the LaunchAgent for this home and these server files,
   const on = await k.turnOn();
   assert.equal(on.on, true);
   const text = fs.readFileSync(file, 'utf8');
-  assert.equal(text, plist('/opt/homebrew/bin/node', serverFile, home));
+  assert.equal(text, plist(NODE, serverFile, home));
   // The serve mode of the same server.cjs, on the same home, logging under it; paths are XML-escaped.
   assert.match(text, /<key>Label<\/key><string>news\.mera\.pod<\/string>/);
-  assert.ok(text.includes(`<string>/opt/homebrew/bin/node</string>\n    <string>${serverFile}</string>\n    <string>serve</string>`));
+  assert.ok(text.includes(`<string>${NODE}</string>\n    <string>${serverFile}</string>\n    <string>serve</string>`));
   assert.ok(text.includes(`<key>MERA_POD_HOME</key><string>${home.replace('&', '&amp;')}</string>`));
   assert.equal(text.match(new RegExp(`<string>${path.join(home, 'logs', 'pod.log').replace('&', '&amp;')}</string>`, 'g'))?.length, 2);
   assert.match(text, /<key>KeepAlive<\/key><dict><key>SuccessfulExit<\/key><false\/><\/dict>/);
@@ -134,19 +137,19 @@ test('at an app\'s start, an agent whose server.cjs is gone is pointed at this o
   fs.mkdirSync(path.dirname(other));
   fs.writeFileSync(other, '');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, plist('/opt/homebrew/bin/node', other, home));
+  fs.writeFileSync(file, plist(process.execPath, other, home));
   await k.refresh();
   assert.equal(calls.length, 0, 'another app\'s server.cjs that still exists keeps the agent');
   fs.rmSync(other);
   await k.refresh();
-  assert.equal(fs.readFileSync(file, 'utf8'), plist('/opt/homebrew/bin/node', serverFile, home));
+  assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, serverFile, home));
   assert.deepEqual(calls.map((c) => c.args[0]), ['bootout', 'bootstrap']);
 });
 
 test('a news.mera.pod LaunchAgent the person wrote, or one for another home, is never touched', async () => {
   const { k, calls, file, home } = setup();
   const handWritten = '<plist><dict><key>Label</key><string>news.mera.pod</string><key>ProgramArguments</key><array><string>/usr/local/bin/node</string><string>/Users/you/mera-news-pod/build/cli.js</string><string>start</string></array></dict></plist>\n';
-  for (const text of [handWritten, plist('/opt/homebrew/bin/node', path.join(home, 'gone', 'server.cjs'), '/Users/you/.other-pod')]) {
+  for (const text of [handWritten, plist(NODE, path.join(home, 'gone', 'server.cjs'), '/Users/you/.other-pod')]) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
     assert.deepEqual(await k.state(), { available: 'other_agent', on: false });
@@ -156,4 +159,21 @@ test('a news.mera.pod LaunchAgent the person wrote, or one for another home, is 
     assert.equal(fs.readFileSync(file, 'utf8'), text);
     assert.equal(calls.length, 0);
   }
+});
+
+test('an agent whose Node.js is gone is reported as broken, pointed at a Node.js that exists at the next app start, and turned on again', async () => {
+  const { k, calls, file, home, serverFile } = setup();
+  const gone = path.join(os.tmpdir(), 'no-such-node-version', 'bin', 'node');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, plist(gone, serverFile, home));
+  const before = await k.state();
+  assert.deepEqual([before.on, (before as { broken?: boolean }).broken], [true, true]);
+  await k.refresh();
+  assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, serverFile, home));
+  assert.deepEqual(calls.map((c) => c.args[0]), ['bootout', 'bootstrap']);
+
+  // Turning it on again rewrites a broken one too.
+  fs.writeFileSync(file, plist(gone, serverFile, home));
+  await k.turnOn();
+  assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, serverFile, home));
 });

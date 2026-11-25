@@ -34,3 +34,9 @@ export function countryName(alpha3: string): string {
   const alpha2 = toAlpha2.get(alpha3);
   return alpha2 ? names.of(alpha2) ?? alpha3 : alpha3;
 }
+
+/** The flag emoji of an alpha-3 code, made of its alpha-2 letters as regional indicators; none for a code that names no country. */
+export function flagOf(alpha3: string): string | undefined {
+  const alpha2 = toAlpha2.get(alpha3);
+  return alpha2 ? String.fromCodePoint(...[...alpha2].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)) : undefined;
+}

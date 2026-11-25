@@ -18,6 +18,8 @@ interface Device {
   id: string;
   name: string;
   pairedAt: string;
+  /** Set only on a phone: whether this entry is the phone showing the list. */
+  current?: boolean;
 }
 interface Pairing {
   url: string;
@@ -82,18 +84,21 @@ function QrCode({ rows, label }: { rows: string[]; label: string }) {
   );
 }
 
-const day = (iso: string) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+const day = (iso: string) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 function DeviceList({ devices, onRemoved }: { devices: Device[]; onRemoved: () => void }) {
   const post = usePost();
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const remove = async (id: string) => {
     setBusy(id);
     setError(null);
     try {
       await post('/api/devices/remove/', { id });
+      // This phone, removed: it is out at once, and the page then says how to pair again.
+      if (devices.find((d) => d.id === id)?.current) return location.reload();
       onRemoved();
     } catch (e) {
       setError(asError(e));
@@ -102,18 +107,39 @@ function DeviceList({ devices, onRemoved }: { devices: Device[]; onRemoved: () =
     }
   };
   if (!devices.length) return <p className="text-[13px] text-muted-foreground">No phones yet.</p>;
+  // This phone first, so a tap meant for another phone does not lock this one out.
+  const sorted = [...devices].sort((a, b) => Number(!!b.current) - Number(!!a.current));
   return (
     <>
       <ul className="flex flex-col divide-y rounded-[12px] border max-md:rounded-none max-md:border-x-0">
-        {devices.map((d) => (
-          <li key={d.id} className="flex items-center gap-3 py-2 pr-2 pl-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{d.name}</p>
-              <p className="text-[12px] text-muted-foreground">Paired {day(d.pairedAt)}</p>
+        {sorted.map((d) => (
+          <li key={d.id} className="flex flex-col gap-2 py-2 pr-2 pl-3">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{d.current ? 'This phone' : d.name}</p>
+                <p className="text-[12px] text-muted-foreground">
+                  Paired {day(d.pairedAt)} at {clock(d.pairedAt)}
+                </p>
+              </div>
+              {!(d.current && asking) && (
+                <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => (d.current ? setAsking(true) : void remove(d.id))} aria-label={d.current ? 'Remove this phone' : `Remove ${d.name}`}>
+                  {busy === d.id ? 'Removing' : 'Remove'}
+                </Button>
+              )}
             </div>
-            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void remove(d.id)} aria-label={`Remove ${d.name}`}>
-              {busy === d.id ? 'Removing' : 'Remove'}
-            </Button>
+            {d.current && asking && (
+              <div className="flex flex-col items-start gap-2 pb-1">
+                <p className="text-[13px] text-pretty">This phone loses access at once. To use it again, pair it from Mera News on your computer.</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void remove(d.id)}>
+                    {busy === d.id ? 'Removing' : 'Remove this phone'}
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setAsking(false)}>
+                    Keep it
+                  </Button>
+                </div>
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -190,6 +216,8 @@ export function PhonesSection() {
       setEditing(false);
       setPairing(null);
       setAddress('');
+      // A new address, or none, removes every paired phone.
+      await loadDevices();
     } catch (err) {
       setError(asError(err));
     } finally {
@@ -207,6 +235,12 @@ export function PhonesSection() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Done voids the code too, so a photo of the QR code pairs nothing afterwards.
+  const stopPairing = async () => {
+    setPairing(null);
+    await post('/api/pair/stop/', {}).catch((err) => setError(asError(err)));
   };
 
   const showSetup = !access.publicHost || editing;
@@ -239,7 +273,8 @@ export function PhonesSection() {
           </ol>
           <p className="max-w-[60ch] text-[13px] text-muted-foreground">
             You can use a public tunnel such as ngrok or Cloudflare Tunnel instead. Point it at <code>{access.tunnelTo}</code> and paste the https address it gives you. Everything your
-            phone reads and changes then passes through the tunnel provider.
+            phone reads and changes then passes through the tunnel provider, and anyone on the internet can reach the pairing page and keep it busy. If pairing asks you
+            to wait, press Add a phone again for a fresh code.
           </p>
           <Problem error={error} />
           <div className="flex gap-2">
@@ -268,7 +303,7 @@ export function PhonesSection() {
               <p className="max-w-[44ch] text-[13px] text-muted-foreground">
                 Scan this with your phone&apos;s camera and open the link. It works once, until {clock(pairing.expiresAt)}.
               </p>
-              <Button variant="ghost" size="sm" onClick={() => setPairing(null)}>
+              <Button variant="ghost" size="sm" onClick={() => void stopPairing()}>
                 Done
               </Button>
             </div>
@@ -285,6 +320,7 @@ export function PhonesSection() {
               </Button>
             </div>
           )}
+          {!pairing && devices.length > 0 && <p className="max-w-[60ch] text-[13px] text-muted-foreground">Changing the address, or turning phone access off, removes every paired phone.</p>}
           {paired && (
             <p role="status" className="text-[13px]">
               {paired}

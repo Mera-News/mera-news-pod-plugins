@@ -184,10 +184,10 @@ test('countries: the person\'s from their places, weightiest first, and every co
           facts: { ...table([{ statement: 'Lives in Utrecht' }]), hash: 'f1' },
           article_suggestions: { ...table([{ description_en: 'SECRET BODY TEXT' }]), hash: 's1' },
           locations: table([
-            { country_code: 'us', weight: 0.2 },
-            { country_code: 'NL', weight: 0.9 },
+            { country_code: 'us', weight: 0.2, role: 'not a role' },
+            { country_code: 'NL', weight: 0.9, city: 'Utrecht', role: 'home' },
             { country_code: 'IN', weight: 0.5, valid_until: Date.now() - 1000 },
-            { country_code: 'NL', weight: 0.3 },
+            { country_code: 'NL', weight: 0.3, role: 'interest' },
             { country_code: 'ZZ', weight: 1 },
           ]),
         },
@@ -200,14 +200,20 @@ test('countries: the person\'s from their places, weightiest first, and every co
     const res = await get('/api/countries/');
     assert.deepEqual(res.body, {
       yours: [
-        { code: 'NLD', name: 'Netherlands' },
-        { code: 'USA', name: 'United States' },
+        { code: 'NLD', name: 'Netherlands', flag: '\u{1F1F3}\u{1F1F1}' },
+        { code: 'USA', name: 'United States', flag: '\u{1F1FA}\u{1F1F8}' },
       ],
       all: [
-        { code: 'DEU', name: 'Germany' },
-        { code: 'XKK', name: 'Kosovo' },
-        { code: 'NLD', name: 'Netherlands' },
+        { code: 'DEU', name: 'Germany', flag: '\u{1F1E9}\u{1F1EA}' },
+        { code: 'XKK', name: 'Kosovo', flag: '\u{1F1FD}\u{1F1F0}' },
+        { code: 'NLD', name: 'Netherlands', flag: '\u{1F1F3}\u{1F1F1}' },
         { code: 'QQQ', name: 'QQQ' },
+      ],
+      // Every place, the weightiest first, with its role where it has a known one.
+      places: [
+        { name: 'Utrecht, Netherlands', role: 'home' },
+        { name: 'Netherlands', role: 'interest' },
+        { name: 'United States' },
       ],
     });
     await get('/api/countries/');

@@ -88,7 +88,10 @@ async function serve(): Promise<void> {
   } catch {
     // No log yet.
   }
-  await ensureConfig(home, __dirname);
+  // The agent has no app settings, so it never puts back a website the person turned off.
+  await ensureConfig(home, __dirname, process.env, { addWeb: false });
+  // Each failed boot leaves the pod's fetch guard installed; the next try must start from the real fetch.
+  const realFetch = globalThis.fetch;
   let running: Embed.Pod | undefined;
   let timer: NodeJS.Timeout | undefined;
   let stopping = false;
@@ -103,10 +106,11 @@ async function serve(): Promise<void> {
   let said = false;
   while (!stopping && !running) {
     try {
-      const cfg = pod.loadConfig(home);
-      for (const line of await pod.probe(cfg)) console.error(line);
+      globalThis.fetch = realFetch;
       running = await pod.boot({ home, createServices: pod.createServices, sink: (_level, line) => console.error(line) });
       console.error('Mera News is running on its own.');
+      // Once, after the takeover: a probe on every wait would bill the AI service each time.
+      for (const line of await pod.probe(pod.loadConfig(home), realFetch)) console.error(line);
     } catch (error) {
       if (!/another pod is running/.test(oneLine(error))) throw error instanceof pod.ConfigError ? new Error(error.message) : error;
       if (!said) console.error('Mera News is open in an app, so this starts when that app quits.');

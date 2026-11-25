@@ -153,7 +153,8 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     return v;
   };
   const cursor = (q: URLSearchParams) => (q.has('after') ? arg(q, 'after', /^[\w.:-]{1,200}$/) : null);
-  const routes: Record<string, (q: URLSearchParams) => Promise<unknown>> = {
+  // `phone` is the device a phone's cookie names; requests from this computer have none.
+  const routes: Record<string, (q: URLSearchParams, phone?: string) => Promise<unknown>> = {
     '/api/status/': () => services.reading.status(),
     '/api/countries/': () => countries(),
     '/api/top/': (q) => topStories(services, arg(q, 'c', /^(GLOBAL|[A-Z]{3})$/, 'GLOBAL'), cursor(q)),
@@ -164,10 +165,12 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     ...you.reads,
     '/api/remote/': async () => phoneAccess(),
     '/api/keep-running/': () => keepRunning.state(),
-    '/api/devices/': async () => ({ devices: remote.devices().map(({ id, name, pairedAt }) => ({ id, name, pairedAt })) }),
+    '/api/devices/': async (_q, phone) => ({
+      devices: remote.devices().map(({ id, name, pairedAt }) => ({ id, name, pairedAt, ...(phone === undefined ? {} : { current: id === phone }) })),
+    }),
   };
   /** Only the computer sets the public address and adds a phone; a phone could otherwise keep itself in. */
-  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/keep-running/']);
+  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/pair/stop/', '/api/keep-running/']);
 
   function phoneAccess() {
     let r: Remote;
@@ -185,8 +188,15 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       const given = body.publicHost;
       const host = given === null || given === '' ? undefined : typeof given === 'string' ? parsePublicHost(given) : null;
       if (host === null) throw new NewsError('bad_input', 'The public address is one https name, such as mac.tail1234.ts.net.', 'Copy the address tailscale serve or your tunnel printed, and try again.');
-      remote.saveRemote({ ...remote.remote(), publicHost: host });
+      const before = remote.remote();
+      remote.saveRemote({ ...before, publicHost: host });
+      // A phone's cookie belongs to one address, so a new address or none starts with no phones.
+      if (host !== before.publicHost) remote.clearPhones();
       return phoneAccess();
+    },
+    async '/api/pair/stop/'() {
+      remote.clearPairing();
+      return { stopped: true };
     },
     async '/api/pair/start/'() {
       const host = publicHost();
@@ -213,7 +223,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     if (req.method !== 'POST') return send(res, 405, { allow: 'POST' });
     const body = await jsonBody(req, res);
     if (!body) return;
-    const r = remote.pair(body.code, deviceName(body.name));
+    const r = remote.pair(body.code, deviceName(body.name), Date.now(), tokenFromCookie(req.headers.cookie));
     if (!r.ok) return json(res, r.status, { error: r.error });
     ctx.log.info('A phone was paired.');
     send(res, 200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'set-cookie': deviceCookie(r.token) }, JSON.stringify({ paired: true }));
@@ -257,11 +267,13 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     if (!read && !write) return send(res, 404);
     const allow = [read && 'GET', write && 'POST'].filter(Boolean).join(', ');
     if ((req.method === 'POST' ? !write : !read) || req.method === 'HEAD') return send(res, 405, { allow });
+    let phone: string | undefined;
     if (channel === 'local') {
       if (!sessionValid(req.headers.authorization)) return send(res, 401, { 'www-authenticate': 'Bearer realm="mera-news-pod"' });
     } else {
       const token = tokenFromCookie(req.headers.cookie);
-      if (!remote.device(token)) return send(res, 401);
+      phone = remote.device(token)?.id;
+      if (!phone) return send(res, 401);
       if (LOCAL_ONLY.has(pathname)) return send(res, 403);
       // Sent again with every answer, so a phone in use stays paired until it is removed.
       res.setHeader('set-cookie', deviceCookie(token!));
@@ -273,7 +285,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
         if (!body) return;
         return json(res, 200, await write!(body));
       }
-      json(res, 200, await read!(new URLSearchParams((req.url ?? '').split('?')[1] ?? '')));
+      json(res, 200, await read!(new URLSearchParams((req.url ?? '').split('?')[1] ?? ''), phone));
     } catch (e) {
       const err = e as { code?: unknown; next?: unknown; message?: unknown };
       // The pod's own errors carry a code and a next step; show those as they are.

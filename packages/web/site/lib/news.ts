@@ -17,6 +17,7 @@ export interface Story extends Report {
 export interface Country {
   code: string;
   name: string;
+  flag?: string;
 }
 
 /** How old a report is, the way a news list says it: 5m, 3h, Yesterday, 12 Nov. */

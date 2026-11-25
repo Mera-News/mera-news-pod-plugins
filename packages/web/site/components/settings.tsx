@@ -65,8 +65,13 @@ export function PodSection({ status }: { status: Status }) {
             <dd className="tabular-nums">{clock(status.lastRunAt)}</dd>
           </>
         )}
-        <dt className="text-muted-foreground">News from</dt>
-        <dd>{status.dataServer.host}</dd>
+        {/* On a phone a loopback address would name the phone itself, so the computer alone shows it. */}
+        {!onPhone() && (
+          <>
+            <dt className="text-muted-foreground">News from</dt>
+            <dd>{status.dataServer.host}</dd>
+          </>
+        )}
         {problems.length > 0 && (
           <>
             <dt className="text-muted-foreground">To fix</dt>
@@ -326,6 +331,8 @@ const GUIDE = 'https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-ho
 interface KeepRunningState {
   available: 'yes' | 'not_mac' | 'not_bundled' | 'other_agent';
   on: boolean;
+  /** On, but naming a Node.js that was removed, so macOS cannot start it. */
+  broken?: boolean;
   node?: { path: string; version: string } | null;
   oldNode?: string | null;
   minNode?: string;
@@ -447,7 +454,11 @@ function KeepRunning() {
       {state.on ? (
         <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-6 gap-y-3">
           <dt className="text-muted-foreground">Status</dt>
-          <dd>On. Mera News starts when you log in to this Mac.</dd>
+          <dd>
+            {state.broken
+              ? `Not running. The Node.js it used was removed from this Mac.${state.node ? '' : ` Install Node.js ${state.minNode} or newer, then reload this page.`}`
+              : 'On. Mera News starts when you log in to this Mac.'}
+          </dd>
           <dt className="text-muted-foreground">Log</dt>
           <dd className="min-w-0 text-[13px] break-all">{state.log}</dd>
         </dl>
@@ -459,6 +470,11 @@ function KeepRunning() {
         )
       )}
       <div className="flex flex-col items-start gap-2">
+        {state.broken && state.node && (
+          <Button disabled={busy} onClick={() => void set(true)}>
+            {busy ? 'Saving' : `Start it with Node.js ${state.node.version}`}
+          </Button>
+        )}
         <Button variant={state.on ? 'outline' : 'default'} disabled={busy} onClick={() => void set(!state.on)}>
           {busy ? 'Saving' : state.on ? 'Stop keeping it running' : 'Keep Mera News running'}
         </Button>

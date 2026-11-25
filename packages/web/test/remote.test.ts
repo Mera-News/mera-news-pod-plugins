@@ -292,3 +292,63 @@ test('no code, token or cookie ever reaches the log', async () => {
   assert.ok(all.includes('A phone was paired.'));
   for (const s of secrets) assert.ok(!all.includes(s), 'a secret was logged');
 });
+
+test('Done voids the code on screen, and only this computer can void it', async () => {
+  const { r, local, phone, startPairing, pairPhone } = await signedIn(withHost);
+  await using(r, async () => {
+    const cookie = await pairPhone();
+    const { code } = await startPairing();
+    assert.equal((await phone('/api/pair/stop/', { cookie, body: {} })).status, 403);
+    assert.deepEqual((await local('/api/pair/stop/', {})).body, { stopped: true });
+    const res = await phone('/api/pair/', { body: { code } });
+    assert.deepEqual([res.status, res.body], [403, { error: 'pairing_closed' }]);
+  });
+});
+
+test('a phone that pairs again replaces its own entry instead of adding one', async () => {
+  const { r, local, phone, startPairing, pairPhone } = await signedIn(withHost);
+  await using(r, async () => {
+    const first = await pairPhone();
+    const { code } = await startPairing();
+    const again = await phone('/api/pair/', { cookie: first, body: { code, name: 'iPhone' } });
+    assert.equal(again.status, 200);
+    const second = String(again.headers['set-cookie']).split(';')[0];
+    assert.equal((await local('/api/devices/')).body.devices.length, 1);
+    assert.equal((await phone('/api/status/', { cookie: first })).status, 401, 'the old token is gone');
+    assert.equal((await phone('/api/status/', { cookie: second })).status, 200);
+  });
+});
+
+test('a phone sees which entry in the list is itself; this computer sees none marked', async () => {
+  const { r, local, phone, pairPhone } = await signedIn(withHost);
+  await using(r, async () => {
+    const a = await pairPhone('iPhone');
+    await pairPhone('iPad');
+    const mine = (await phone('/api/devices/', { cookie: a })).body.devices as { name: string; current?: boolean }[];
+    assert.deepEqual(mine.map((d) => [d.name, d.current]), [['iPhone', true], ['iPad', false]]);
+    assert.ok((await local('/api/devices/')).body.devices.every((d: { current?: boolean }) => d.current === undefined));
+  });
+});
+
+test('turning phone access off, or changing the address, removes every paired phone and the code on screen', async () => {
+  const { r, local, phone, startPairing, pairPhone } = await signedIn(withHost);
+  await using(r, async () => {
+    const cookie = await pairPhone();
+    await startPairing();
+    assert.equal((await local('/api/remote/', { publicHost: null })).status, 200);
+    assert.equal((await local('/api/remote/', { publicHost: HOST })).status, 200);
+    assert.equal((await phone('/api/status/', { cookie })).status, 401, 'the same address again lets no old phone back in');
+    assert.deepEqual((await local('/api/devices/')).body.devices, []);
+    const again = await pairPhone();
+    const { code } = await startPairing();
+    await local('/api/remote/', { publicHost: 'other.tail1234.ts.net' });
+    assert.deepEqual((await local('/api/devices/')).body.devices, []);
+    await local('/api/remote/', { publicHost: HOST });
+    assert.equal((await phone('/api/pair/', { body: { code } })).body.error, 'pairing_closed');
+    assert.equal((await phone('/api/status/', { cookie: again })).status, 401);
+    // Saving the same address leaves the phones alone.
+    const kept = await pairPhone();
+    await local('/api/remote/', { publicHost: HOST });
+    assert.equal((await phone('/api/status/', { cookie: kept })).status, 200);
+  });
+});
