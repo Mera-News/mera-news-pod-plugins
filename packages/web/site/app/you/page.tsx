@@ -21,6 +21,8 @@ function You({ initial }: { initial: Status }) {
   const [status, setStatus] = useState(initial);
   const [profile, setProfile] = useState<{ facts: Fact[] } | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  // Fixed when the page opens, so saving the first AI service does not move its card away.
+  const [aiFirst] = useState(!initial.ai);
 
   const load = useCallback(async () => {
     try {
@@ -93,8 +95,10 @@ function You({ initial }: { initial: Status }) {
         )}
       </section>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-x-12 gap-y-10 px-7 pt-10 pb-12">
-        <DigestSection />
-        <AiServiceSection status={status} onSaved={() => void load()} />
+        {/* With no AI service, adding one comes first. */}
+        {!aiFirst && <DigestSection />}
+        <AiServiceSection status={status} onSaved={() => void load()} ready={profile !== null || !!error} />
+        {aiFirst && <DigestSection />}
         <PodSection status={status} />
         <AppearanceSection />
         <KeepRunningSection />

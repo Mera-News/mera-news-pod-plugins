@@ -151,7 +151,7 @@ test('add_facts: topics go to new and already saved facts, never to a refused on
       return { added: texts.map((text, i) => ({ id: `t${i}`, text })), skipped: [] };
     },
   };
-  let ai: { host: string; model: string } | null = null;
+  let ai: { host: string; model: string; relevanceModel: string; reasons: boolean } | null = null;
   const r = await run({ services: fakeServices({ profile, reading: { status: async () => status({ ai, counts: { facts: 2, topics: 0, topicsPending: 0, picks: 0 } }) } }) });
   try {
     const c = await r.client();
@@ -169,7 +169,7 @@ test('add_facts: topics go to new and already saved facts, never to a refused on
     const bare = json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } }));
     assert.match(bare.note, /makes no topics on its own/, 'no AI service: the assistant is asked for topics');
     assert.doesNotMatch(bare.note, /minute/);
-    ai = { host: 'ai.example', model: 'm' };
+    ai = { host: 'ai.example', model: 'm', relevanceModel: 'm', reasons: true };
     assert.match(json(await c.callTool({ name: 'add_facts', arguments: { statements: ['Lives in Utrecht'] } })).note, /within a minute or two/);
 
     // The pod matches a saved fact with case and spacing ignored, and hands back the saved wording.

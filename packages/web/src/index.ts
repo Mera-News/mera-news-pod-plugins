@@ -207,8 +207,8 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       devices: remote.devices().map(({ id, name, pairedAt }) => ({ id, name, pairedAt, ...(phone === undefined ? {} : { current: id === phone }) })),
     }),
   };
-  /** Only the computer sets the public address and adds a phone; a phone could otherwise keep itself in. */
-  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/pair/stop/', '/api/keep-running/', '/api/sign-out/']);
+  /** Only the computer sets the public address, adds a phone and sets the AI service; a phone could otherwise keep itself in, or send a key over the tunnel. */
+  const LOCAL_ONLY = new Set(['/api/ai/', '/api/ai/providers/', '/api/ai/models/', '/api/ai/reasons/', '/api/remote/', '/api/pair/start/', '/api/pair/stop/', '/api/keep-running/', '/api/sign-out/']);
 
   function phoneAccess() {
     let r: Remote;

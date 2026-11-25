@@ -27,6 +27,31 @@ async function inSiteWords<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The AI service fields as typed, trimmed; an empty optional field is left out. */
+function aiFields(body: Record<string, unknown>) {
+  const text = (v: unknown, max: number) => (v === undefined ? '' : typeof v === 'string' && v.trim().length <= max ? v.trim() : null);
+  const baseUrl = text(body.baseUrl, 500);
+  const model = text(body.model, 200);
+  const relevanceModel = text(body.relevanceModel, 200);
+  const apiKey = text(body.apiKey, 2000);
+  if (!baseUrl || model === null || relevanceModel === null || apiKey === null) throw bad('Give the address, the models and the key as text.');
+  return { baseUrl, model, relevanceModel, apiKey };
+}
+
+/** An AI service's answer can repeat the key it was sent; the pod's error never carries it on to the page. */
+async function keyless<T>(apiKey: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const err = e as { code?: unknown; message?: unknown; next?: unknown };
+    if (apiKey && typeof err.code === 'string' && typeof err.next === 'string') {
+      const hide = (t: unknown) => String(t).split(apiKey).join('[key]');
+      throw new NewsError(err.code, hide(err.message), hide(err.next));
+    }
+    throw e;
+  }
+}
+
 /** The digest schedule the mcp plugin keeps beside this plugin's data folder: one file, read by both. */
 interface Digest {
   times: string[];
@@ -89,6 +114,9 @@ export function createYou(services: PodServices, dataDir: string) {
   const reads: Record<string, () => Promise<unknown>> = {
     '/api/profile/': profile,
     '/api/digest/': async () => digestView(readDigest(digestFile)),
+    '/api/ai/providers/': async () => ({
+      providers: services.aiService.providers().map((p) => ({ id: p.id, name: p.name, baseUrl: p.baseUrl, chatModel: p.chatModel ?? null, relevanceModel: p.relevanceModel ?? null, listsModels: p.listsModels })),
+    }),
   };
 
   const writes: Record<string, (body: Record<string, unknown>) => Promise<unknown>> = {
@@ -130,10 +158,24 @@ export function createYou(services: PodServices, dataDir: string) {
       return digestView(next);
     },
     async '/api/ai/'(body) {
-      const { baseUrl, model, apiKey } = body;
-      if (typeof baseUrl !== 'string' || typeof model !== 'string' || (apiKey !== undefined && typeof apiKey !== 'string')) throw bad('Give the address and the model.');
-      // An empty key field keeps the saved key.
-      await services.aiService.set({ baseUrl: baseUrl.trim(), model, ...(apiKey ? { apiKey: apiKey.trim() } : {}) });
+      const { baseUrl, model, relevanceModel, apiKey } = aiFields(body);
+      if (!model) throw bad('Give the chat model.');
+      if (body.reasons !== undefined && typeof body.reasons !== 'boolean') throw bad('Say whether Mera News writes a reason for each story.');
+      // An empty key field keeps the saved key; an empty relevance model uses the chat model.
+      await keyless(apiKey, () =>
+        services.aiService.set({ baseUrl, model, ...(relevanceModel ? { relevanceModel } : {}), ...(apiKey ? { apiKey } : {}), ...(body.reasons === undefined ? {} : { reasons: body.reasons as boolean }) }),
+      );
+      return { set: true };
+    },
+    // POST so the key never sits in an address.
+    async '/api/ai/models/'(body) {
+      const { baseUrl, apiKey } = aiFields(body);
+      const r = await keyless(apiKey, () => services.aiService.models({ baseUrl, ...(apiKey ? { apiKey } : {}) }));
+      return { models: r.models.filter((m) => typeof m === 'string') };
+    },
+    async '/api/ai/reasons/'(body) {
+      if (typeof body.on !== 'boolean') throw bad('Say whether Mera News writes a reason for each story.');
+      await services.aiService.setReasons(body.on);
       return { set: true };
     },
   };

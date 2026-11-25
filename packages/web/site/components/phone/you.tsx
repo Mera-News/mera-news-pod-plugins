@@ -85,9 +85,13 @@ function PlacesCard() {
 export function PhoneYou({ status, profile, error, reload }: { status: Status; profile: { facts: Fact[] } | null; error: ApiError | null; reload: () => void }) {
   const [tab, setTab] = useState<Tab>(tabOf);
   const hasAi = !!status.ai;
+  // Fixed when the page opens, so saving the first AI service does not move its card away.
+  const [aiFirst] = useState(!status.ai);
 
   useEffect(() => {
     const onHash = () => setTab(tabOf());
+    // A link from the Feed changes the address after this page first renders, with no hashchange.
+    onHash();
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -157,12 +161,20 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
         </div>
       ) : (
         <div className="flex flex-col gap-3 px-4 pt-3 pb-6">
-          <Panel className="p-4">
-            <DigestSection />
-          </Panel>
+          {/* With no AI service, adding one comes first. */}
+          {!aiFirst && (
+            <Panel className="p-4">
+              <DigestSection />
+            </Panel>
+          )}
           <Panel className="p-4">
             <AiServiceSection status={status} onSaved={reload} />
           </Panel>
+          {aiFirst && (
+            <Panel className="p-4">
+              <DigestSection />
+            </Panel>
+          )}
           <Panel className="p-4">
             <PodSection status={status} />
           </Panel>

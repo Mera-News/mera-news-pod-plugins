@@ -11,8 +11,8 @@ export interface Status {
   nextReadAt: string | null;
   counts: { facts: number; topics: number; topicsPending: number; picks: number };
   problems: { code: string; who: 'assistant' | 'person'; fix: string }[];
-  ai: { host: string; model: string } | null;
-  aiAfterRestart?: { host: string; model: string };
+  /** `model` serves chat and topics, `relevanceModel` rates articles; `reasons` is false while no reason is written for a pick. */
+  ai: { host: string; model: string; relevanceModel: string; reasons: boolean } | null;
   dataServer: { host: string };
 }
 

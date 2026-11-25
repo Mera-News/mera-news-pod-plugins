@@ -21,7 +21,7 @@ export const status = (over: Partial<PodStatus> = {}): PodStatus => ({
   counts: { facts: 1, topics: 2, topicsPending: 0, picks: 3 },
   problems: [],
   limits: [],
-  ai: { host: 'ai.example', model: 'm' },
+  ai: { host: 'ai.example', model: 'm', relevanceModel: 'm', reasons: true },
   dataServer: { host: 'data.example' },
   ...over,
 });
@@ -65,7 +65,7 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
       addTopics: async () => ({ added: [], skipped: [] }),
     },
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
-    aiService: { set: async () => ({ set: true }) },
+    aiService: { set: async () => ({ set: true }), models: async () => ({ models: [] }), providers: () => [], setReasons: async () => ({ set: true }) },
     stories: { forProfile: async () => Promise.reject(new Error('not used')), judge: async () => ({ saved: [], already: [], refused: [] }) },
     reading: {
       status: async () => status(),

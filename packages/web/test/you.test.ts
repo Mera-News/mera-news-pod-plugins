@@ -164,39 +164,118 @@ test('with no assistant on this pod the digest says so and saves nothing', async
   });
 });
 
-test('the AI service goes to the pod as typed, an empty key keeps the saved one, and the answer is only that it is set', async () => {
+type Ai = PodServices['aiService'];
+const AI: Ai = { set: async () => ({ set: true }), models: async () => ({ models: [] }), providers: () => [], setReasons: async () => ({ set: true }) };
+const podError = (code: string, message: string, next: string) => Object.assign(new Error(message), { code, next });
+
+test('the AI service goes to the pod trimmed, an empty key or relevance model is left out, and the answer is only that it is set', async () => {
   const given: unknown[] = [];
   const { r, post } = await signedIn({
     aiService: {
+      ...AI,
       set: async (c) => {
         given.push(c);
-        if (c.baseUrl.startsWith('http://ai')) throw Object.assign(new Error('The AI service address must start with https://. Nothing was saved.'), { code: 'bad_input', next: 'Use the address your AI service gives.' });
+        if (c.baseUrl.startsWith('http://ai')) throw podError('bad_input', 'The AI service address must start with https://. Nothing was saved.', 'Use the address your AI service gives.');
+        if (c.model === 'nope') throw podError('ai_test_failed', 'The AI service refused the key sk-2 for model nope.', 'Check the key sk-2 and the model name.');
         return { set: true };
       },
     },
   });
   await using(r, async () => {
-    assert.deepEqual((await post('/api/ai/', { baseUrl: ' https://ai.example.org/v1 ', model: 'm', apiKey: ' sk-1 ' })).body, { set: true });
-    assert.deepEqual((await post('/api/ai/', { baseUrl: 'https://ai.example.org/v1', model: 'm', apiKey: '' })).body, { set: true });
+    assert.deepEqual((await post('/api/ai/', { baseUrl: ' https://ai.example.org/v1 ', model: ' big ', relevanceModel: ' small ', apiKey: ' sk-1 ', reasons: false })).body, { set: true });
+    assert.deepEqual((await post('/api/ai/', { baseUrl: 'https://ai.example.org/v1', model: 'm', relevanceModel: '  ', apiKey: '' })).body, { set: true });
     assert.deepEqual(given, [
-      { baseUrl: 'https://ai.example.org/v1', model: 'm', apiKey: 'sk-1' },
+      { baseUrl: 'https://ai.example.org/v1', model: 'big', relevanceModel: 'small', apiKey: 'sk-1', reasons: false },
       { baseUrl: 'https://ai.example.org/v1', model: 'm' },
     ]);
     const refused = await post('/api/ai/', { baseUrl: 'http://ai.example.org', model: 'm', apiKey: 'sk-2' });
     assert.equal(refused.status, 400);
     assert.equal(refused.body.next, 'Use the address your AI service gives.');
-    assert.doesNotMatch(JSON.stringify(refused.body), /sk-2/);
-    assert.equal((await post('/api/ai/', { model: 'm' })).status, 400);
+    const failed = await post('/api/ai/', { baseUrl: 'https://ai.example.org', model: 'nope', apiKey: 'sk-2' });
+    assert.equal(failed.status, 400);
+    assert.equal(failed.body.error, 'ai_test_failed');
+    assert.doesNotMatch(JSON.stringify([refused.body, failed.body]), /sk-2/, 'the key never comes back, even when the service repeats it');
+    const count = given.length;
+    for (const body of [{ model: 'm' }, { baseUrl: 'https://a.example', model: '' }, { baseUrl: 'https://a.example', model: 'm', apiKey: 42 }, { baseUrl: 'https://a.example', model: 'm', reasons: 'yes' }, { baseUrl: 'https://a.example', model: 'x'.repeat(201) }]) {
+      const res = await post('/api/ai/', body);
+      assert.equal(res.status, 400, JSON.stringify(body).slice(0, 60));
+      assert.equal(res.body.error, 'bad_input');
+    }
+    assert.equal(given.length, count, 'a refused change never reaches the pod');
+  });
+});
+
+test('the providers come from the pod with only the fields the page uses', async () => {
+  const { r, get } = await signedIn({
+    aiService: {
+      ...AI,
+      providers: () => [
+        { id: 'one', name: 'One', baseUrl: 'https://one.example/v1', chatModel: 'big', relevanceModel: 'small', listsModels: true, extra: 'x' } as never,
+        { id: 'other', name: 'Other', baseUrl: null, listsModels: false },
+      ],
+    },
+  });
+  await using(r, async () => {
+    assert.deepEqual((await get('/api/ai/providers/')).body, {
+      providers: [
+        { id: 'one', name: 'One', baseUrl: 'https://one.example/v1', chatModel: 'big', relevanceModel: 'small', listsModels: true },
+        { id: 'other', name: 'Other', baseUrl: null, chatModel: null, relevanceModel: null, listsModels: false },
+      ],
+    });
+  });
+});
+
+test('the models list is asked by POST with the address trimmed and the key only when typed; a failure comes back without the key', async () => {
+  const asked: unknown[] = [];
+  const { r, post } = await signedIn({
+    aiService: {
+      ...AI,
+      models: async (q) => {
+        asked.push(q);
+        if (q.apiKey === 'sk-bad') throw podError('ai_models_failed', 'The service refused sk-bad.', 'Check the key.');
+        return { models: ['a', 'b'] };
+      },
+    },
+  });
+  await using(r, async () => {
+    assert.deepEqual((await post('/api/ai/models/', { baseUrl: ' https://ai.example.org/v1 ', apiKey: ' sk-1 ' })).body, { models: ['a', 'b'] });
+    assert.deepEqual((await post('/api/ai/models/', { baseUrl: 'https://ai.example.org/v1', apiKey: '' })).body, { models: ['a', 'b'] });
+    assert.deepEqual(asked, [{ baseUrl: 'https://ai.example.org/v1', apiKey: 'sk-1' }, { baseUrl: 'https://ai.example.org/v1' }]);
+    const failed = await post('/api/ai/models/', { baseUrl: 'https://ai.example.org/v1', apiKey: 'sk-bad' });
+    assert.deepEqual([failed.status, failed.body.error], [400, 'ai_models_failed']);
+    assert.doesNotMatch(JSON.stringify(failed.body), /sk-bad/);
+    for (const body of [{}, { baseUrl: '' }, { baseUrl: 'https://a.example', apiKey: 1 }]) assert.equal((await post('/api/ai/models/', body)).status, 400, JSON.stringify(body));
+    assert.equal(asked.length, 3);
+  });
+});
+
+test('reasons turn on and off alone, and only with a true or false', async () => {
+  const set: boolean[] = [];
+  const { r, post } = await signedIn({
+    aiService: {
+      ...AI,
+      setReasons: async (on) => {
+        if (set.push(on) > 2) throw podError('no_ai_service', 'There is no AI service.', 'Add one first.');
+        return { set: true };
+      },
+    },
+  });
+  await using(r, async () => {
+    assert.deepEqual((await post('/api/ai/reasons/', { on: false })).body, { set: true });
+    assert.deepEqual((await post('/api/ai/reasons/', { on: true })).body, { set: true });
+    assert.deepEqual(set, [false, true]);
+    for (const body of [{}, { on: 'false' }, { on: 1 }]) assert.equal((await post('/api/ai/reasons/', body)).status, 400, JSON.stringify(body));
+    assert.deepEqual((await post('/api/ai/reasons/', { on: true })).body.error, 'no_ai_service');
   });
 });
 
 test('every write needs this page: its session, its origin and JSON; a write route answers no GET and a read route no POST', async () => {
   let calls = 0;
   const count = async () => (calls++, { set: true as const });
-  const { r, post } = await signedIn({ aiService: { set: count } }, withMcp);
+  const { r, post } = await signedIn({ aiService: { ...AI, set: count, models: count as never, setReasons: count } }, withMcp);
   await using(r, async () => {
     const body = { baseUrl: 'https://ai.example.org', model: 'm' };
-    for (const p of ['/api/facts/', '/api/facts/remove/', '/api/topics/', '/api/ai/']) {
+    for (const p of ['/api/facts/', '/api/facts/remove/', '/api/topics/', '/api/ai/', '/api/ai/models/', '/api/ai/reasons/']) {
       assert.equal((await post(p, body, { authorization: undefined })).status, 401, `${p} without a session`);
       assert.equal((await post(p, body, { authorization: 'Bearer wrong' })).status, 401, `${p} with a wrong session`);
       assert.equal((await post(p, body, { origin: 'http://evil.example' })).status, 403, `${p} from another origin`);
@@ -220,7 +299,7 @@ test('nothing typed on the You page reaches the log, even when the pod fails on 
   const { r, post } = await signedIn(
     {
       profile: { addFacts: fail(typed[0]), editTopics: fail(typed[3]), removeFacts: fail(typed[0]) } as unknown as PodServices['profile'],
-      aiService: { set: fail(`${typed[1]} ${typed[2]}`) },
+      aiService: { ...AI, set: fail(`${typed[1]} ${typed[2]}`), models: fail(`${typed[1]} ${typed[2]}`) },
     },
     withMcp,
   );
@@ -229,6 +308,7 @@ test('nothing typed on the You page reaches the log, even when the pod fails on 
     assert.equal((await post('/api/topics/', { factId: 'a', remove: ['chess'] })).status, 500);
     assert.equal((await post('/api/facts/remove/', { id: 'a' })).status, 500);
     assert.equal((await post('/api/ai/', { baseUrl: typed[2], model: 'm', apiKey: typed[1] })).status, 500);
+    assert.equal((await post('/api/ai/models/', { baseUrl: typed[2], apiKey: typed[1] })).status, 500);
     assert.equal((await post('/api/facts/', `{"statement":"${typed[0]}"`)).status, 400);
     assert.ok(r.logs.includes('A website request failed.'));
   });

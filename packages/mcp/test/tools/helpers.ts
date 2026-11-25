@@ -21,7 +21,7 @@ export const status = (over: Partial<PodStatus> = {}): PodStatus => ({
   counts: { facts: 1, topics: 2, topicsPending: 0, picks: 3 },
   problems: [],
   limits: [],
-  ai: { host: 'ai.example', model: 'm' },
+  ai: { host: 'ai.example', model: 'm', relevanceModel: 'm', reasons: true },
   dataServer: { host: 'data.example' },
   ...over,
 });
@@ -57,7 +57,7 @@ export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServi
       readNow: async () => 'ran',
     },
     // The mcp plugin uses none of these; they are part of what a version 2 plugin is given.
-    aiService: { set: async () => ({ set: true }) },
+    aiService: { set: async () => ({ set: true }), models: async () => ({ models: [] }), providers: () => [], setReasons: async () => ({ set: true }) },
     stories: {
       forProfile: async () => ({
         run: '00000000',
