@@ -49,6 +49,14 @@ export function Gate({ children }: { children: ReactNode }) {
           </Button>
         </Empty>
       );
+    case 'not-paired':
+      return (
+        <Empty title="Pair this phone with Mera News">
+          <p>On your computer, open Mera News, go to You and choose Add a phone. Then scan the code with this phone&apos;s camera.</p>
+        </Empty>
+      );
+    case 'pair-refused':
+      return <PairRefused error={c.error} />;
     case 'unavailable':
       return (
         <Empty title="The Mera News website could not start">
@@ -56,4 +64,26 @@ export function Gate({ children }: { children: ReactNode }) {
         </Empty>
       );
   }
+}
+
+function PairRefused({ error }: { error: string }) {
+  if (error === 'too_many_tries') {
+    return (
+      <Empty title="Too many tries">
+        <p>Wait a minute, then scan the code again.</p>
+      </Empty>
+    );
+  }
+  if (error === 'too_many_devices') {
+    return (
+      <Empty title="Too many phones are paired">
+        <p>On your computer, go to You and remove a phone you no longer use. Then add this one again.</p>
+      </Empty>
+    );
+  }
+  return (
+    <Empty title="This code no longer works">
+      <p>A code works once, for 10 minutes. On your computer, go to You and choose Add a phone again.</p>
+    </Empty>
+  );
 }

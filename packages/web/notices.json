@@ -18,6 +18,7 @@
   "buildOnly": [
     "@tailwindcss/postcss",
     "@types/react",
-    "@types/react-dom"
+    "@types/react-dom",
+    "uqr"
   ]
 }

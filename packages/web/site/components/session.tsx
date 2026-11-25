@@ -23,6 +23,8 @@ export type Connection =
   | { kind: 'ended' }
   | { kind: 'offline' }
   | { kind: 'unavailable' }
+  | { kind: 'not-paired' }
+  | { kind: 'pair-refused'; error: string }
   | { kind: 'ready'; status: Status };
 
 // Per tab: a link opens one tab, and the pod forgets every session when it restarts.
@@ -48,8 +50,48 @@ const stored = {
 
 const failed = (status: number): Connection => (status === 503 ? { kind: 'unavailable' } : { kind: 'offline' });
 
+/** A phone reaches the pod at its public https address; this computer at http://127.0.0.1. */
+export const onPhone = () => location.protocol === 'https:';
+
+const phoneName = () => {
+  const ua = navigator.userAgent;
+  return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android phone' : 'Phone';
+};
+
+/** A phone swaps the pairing code from the address for a device cookie the pod sets, then opens the feed. */
+async function pairPhone(): Promise<Connection> {
+  const code = /^#([A-Za-z2-7]{10})$/.exec(location.hash)?.[1];
+  if (code) {
+    history.replaceState(null, '', location.pathname + location.search);
+    let res: Response;
+    try {
+      res = await fetch('/api/pair/', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name: phoneName() }) });
+    } catch {
+      return { kind: 'offline' };
+    }
+    if (res.ok) {
+      location.replace('/');
+      return { kind: 'connecting' };
+    }
+    const reply = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    if (typeof reply?.error === 'string') return { kind: 'pair-refused', error: reply.error };
+    return failed(res.status);
+  }
+  let res: Response;
+  try {
+    res = await fetch('/api/status/');
+  } catch {
+    return { kind: 'offline' };
+  }
+  if (res.status === 401) return { kind: 'not-paired' };
+  if (!res.ok) return failed(res.status);
+  return { kind: 'ready', status: (await res.json()) as Status };
+}
+
 /** Swaps the one-time code from the address for a session, then reads the pod's status. */
 async function connect(session: string | null): Promise<{ session: string | null; next: Connection }> {
+  // A phone's session is its cookie, which the browser sends by itself.
+  if (onPhone()) return { session: null, next: await pairPhone() };
   const code = /^#c=([\w.-]+)$/.exec(location.hash)?.[1];
   if (code) {
     // The code is spent either way: keep it out of the history and of anything copied from the address bar.
@@ -115,7 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void refresh();
     const onVisible = () => document.visibilityState === 'visible' && void refresh();
     // A new link pasted into this tab changes only the hash.
-    const onHash = () => location.hash.startsWith('#c=') && void refresh();
+    const onHash = () => /^#(c=|[A-Za-z2-7]{10}$)/.test(location.hash) && void refresh();
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('hashchange', onHash);
     return () => {
@@ -127,17 +169,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const call = useCallback(async (path: string, body?: object) => {
     let res: Response;
     try {
-      res = await fetch(
-        path,
-        body
-          ? { method: 'POST', headers: { authorization: `Bearer ${stored.get() ?? ''}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }
-          : { headers: { authorization: `Bearer ${stored.get() ?? ''}` } },
-      );
+      const auth: Record<string, string> = onPhone() ? {} : { authorization: `Bearer ${stored.get() ?? ''}` };
+      res = await fetch(path, body ? { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) } : { headers: auth });
     } catch {
       throw new ApiError('Mera News is not running.', 'Open your AI app, or start your pod, then try again.');
     }
     if (res.status === 401) {
       stored.set(null);
+      if (onPhone()) {
+        setConnection({ kind: 'not-paired' });
+        throw new ApiError('This phone is no longer paired.', 'Pair it again from Mera News on your computer.');
+      }
       setConnection({ kind: 'ended' });
       throw new ApiError('This page needs a new link.', 'Ask your assistant to open Mera News.');
     }

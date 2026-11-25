@@ -30,6 +30,7 @@ export interface Reply {
 
 export interface Running {
   plugin: PodPlugin;
+  home: string;
   dataDir: string;
   logs: string[];
   port(): number;
@@ -40,8 +41,8 @@ export interface Running {
 }
 
 /** The web plugin on fake services, serving the built export, on a free port. */
-export async function run(opts: { status?: () => Promise<PodStatus>; services?: Partial<PodServices>; config?: object; before?: (dataDir: string) => void } = {}): Promise<Running> {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'web-plugin-'));
+export async function run(opts: { status?: () => Promise<PodStatus>; services?: Partial<PodServices>; config?: object; before?: (dataDir: string) => void; home?: string } = {}): Promise<Running> {
+  const home = opts.home ?? mkdtempSync(path.join(os.tmpdir(), 'web-plugin-'));
   const dataDir = path.join(home, 'data', 'plugins', 'web');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   opts.before?.(dataDir);
@@ -69,6 +70,7 @@ export async function run(opts: { status?: () => Promise<PodStatus>; services?: 
     });
   return {
     plugin,
+    home,
     dataDir,
     logs,
     port,

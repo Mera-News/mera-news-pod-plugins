@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Heading } from '@/components/heading';
 import { AddFact, FactBoard, SetupPanel, type Fact, type Setup } from '@/components/profile';
 import { ApiError, useApi, useConnection, type Status } from '@/components/session';
+import { PhonesSection } from '@/components/phones';
 import { AiServiceSection, DigestSection, PodSection } from '@/components/settings';
 import { TopBar } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
@@ -92,6 +93,7 @@ function You({ initial }: { initial: Status }) {
         <DigestSection />
         <AiServiceSection status={status} onSaved={() => void load()} />
         <PodSection status={status} />
+        <PhonesSection />
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 1:"$Sreact.fragment"
-2:"/_next/static/chunks/1tgno7gly-wnl.js"
-3:"/_next/static/chunks/0j3cnfvrabrwn.js"
+2:"/_next/static/chunks/0-j68y8kw33x0.js"
+3:"/_next/static/chunks/42q2t8dopi8cx.js"
 4:I[32409,["$2","$3"],"SessionProvider"]
 5:I[61180,["$2","$3"],"Rail"]
 6:I[8231,["$2","$3"],"Gate"]
@@ -8,7 +8,7 @@
 8:I[27115,["$2","$3"],"default"]
 9:I[68255,["$2","$3"],""]
 10:I[13914,["$2","$3"],"ClientPageRoot"]
-11:"/_next/static/chunks/0xw0pv0g_6pe8.js"
+11:"/_next/static/chunks/1n8a4v2wib8t6.js"
 12:I[58769,["$2","$3","$11"],"default"]
 15:I[98753,["$2","$3"],"OutletBoundary"]
 16:"$Sreact.suspense"
@@ -17,13 +17,13 @@
 1b:"MetadataBoundary"
 1c:I[98753,["$2","$3"],"$1b"]
 1d:I[75060,["$2","$3"],"IconMark"]
-:HL["/_next/static/chunks/2lpw6rdt-f4ho.css","style"]
+:HL["/_next/static/chunks/3iua--5jpd5zu.css","style"]
 b:X
 e:X
 e:C
-f:[["children",{"s":"__PAGE__","h":160,"d":{"r":["$","$1","c",{"children":[["$","$L10",null,{"Component":"$12","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@13","$@14"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/0xw0pv0g_6pe8.js","async":true}]],["$","$L15",null,{"children":["$","$16",null,{"name":"Next.MetadataOutlet","children":"$@17"}]}]]}],"p":"$@18","v":null,"s":"$b"}}]]
+f:[["children",{"s":"__PAGE__","h":160,"d":{"r":["$","$1","c",{"children":[["$","$L10",null,{"Component":"$12","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@13","$@14"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/1n8a4v2wib8t6.js","async":true}]],["$","$L15",null,{"children":["$","$16",null,{"name":"Next.MetadataOutlet","children":"$@17"}]}]]}],"p":"$@18","v":null,"s":"$b"}}]]
 c:[["children",{"s":"you","h":96,"d":{"r":["$","$1","c",{"children":[null,["$","$L7",null,{"parallelRouterKey":"children","template":["$","$L8",null,{}]}]]}],"p":"$@d","v":"$e","s":"$b"},"c":"$Qf"}]]
-0:{"t":{"t":{"s":"","h":80,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/2lpw6rdt-f4ho.css","precedence":"next"}],["$","script","script-0",{"src":"/_next/static/chunks/1tgno7gly-wnl.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/0j3cnfvrabrwn.js","async":true}]],["$","html",null,{"lang":"en","children":["$","body",null,{"className":"flex min-h-dvh bg-background font-sans text-foreground antialiased","children":["$","$L4",null,{"children":[["$","$L5",null,{}],["$","main",null,{"className":"flex min-w-0 flex-1 flex-col","children":["$","$L6",null,{"children":["$","$L7",null,{"parallelRouterKey":"children","template":["$","$L8",null,{}],"notFound":[["$","div",null,{"className":"flex flex-1 flex-col items-start justify-center gap-2 px-7 py-16 sm:items-center sm:text-center","children":[["$","h1",null,{"className":"text-balance text-[17px] font-semibold tracking-[-0.01em]","children":"This page does not exist"}],["$","div",null,{"className":"max-w-[56ch] text-pretty text-muted-foreground","children":["$","p",null,{"children":["Go back to ",["$","$L9",null,{"href":"/","className":"text-accent-foreground underline underline-offset-4","children":"your news"}],"."]}]}]]}],[]]}]}]}]]}]}]}]]}],"p":"$@a","v":null,"s":"$b"},"c":"$Qc"},"h":{"r":["$","$1","h",{"children":[null,["$","$L1a",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}],["$","meta","2",{"name":"theme-color","content":"#f7f7f7","media":"(prefers-color-scheme: light)"}],["$","meta","3",{"name":"theme-color","content":"#0a0a0a","media":"(prefers-color-scheme: dark)"}],["$","meta","4",{"name":"color-scheme","content":"light dark"}]]}],["$","$L1c",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$16",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Mera News"}],["$","meta","1",{"name":"description","content":"Your news, top stories and your profile, from the Mera News pod on this computer."}],["$","meta","2",{"name":"referrer","content":"no-referrer"}],["$","meta","3",{"name":"robots","content":"noindex, nofollow"}],["$","link","4",{"rel":"icon","href":"/mark.png"}],["$","$L1d","5",{}]]}]}],null]}],null]}],"p":"$@1e","v":null,"s":"$b"}},"a":"$@1f","u":"$@20","b":"web"}
+0:{"t":{"t":{"s":"","h":80,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/3iua--5jpd5zu.css","precedence":"next"}],["$","script","script-0",{"src":"/_next/static/chunks/0-j68y8kw33x0.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/42q2t8dopi8cx.js","async":true}]],["$","html",null,{"lang":"en","children":["$","body",null,{"className":"flex min-h-dvh bg-background font-sans text-foreground antialiased","children":["$","$L4",null,{"children":[["$","$L5",null,{}],["$","main",null,{"className":"flex min-w-0 flex-1 flex-col","children":["$","$L6",null,{"children":["$","$L7",null,{"parallelRouterKey":"children","template":["$","$L8",null,{}],"notFound":[["$","div",null,{"className":"flex flex-1 flex-col items-start justify-center gap-2 px-7 py-16 sm:items-center sm:text-center","children":[["$","h1",null,{"className":"text-balance text-[17px] font-semibold tracking-[-0.01em]","children":"This page does not exist"}],["$","div",null,{"className":"max-w-[56ch] text-pretty text-muted-foreground","children":["$","p",null,{"children":["Go back to ",["$","$L9",null,{"href":"/","className":"text-accent-foreground underline underline-offset-4","children":"your news"}],"."]}]}]]}],[]]}]}]}]]}]}]}]]}],"p":"$@a","v":null,"s":"$b"},"c":"$Qc"},"h":{"r":["$","$1","h",{"children":[null,["$","$L1a",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}],["$","meta","2",{"name":"theme-color","content":"#f7f7f7","media":"(prefers-color-scheme: light)"}],["$","meta","3",{"name":"theme-color","content":"#0a0a0a","media":"(prefers-color-scheme: dark)"}],["$","meta","4",{"name":"color-scheme","content":"light dark"}]]}],["$","$L1c",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$16",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Mera News"}],["$","meta","1",{"name":"description","content":"Your news, top stories and your profile, from the Mera News pod on this computer."}],["$","meta","2",{"name":"referrer","content":"no-referrer"}],["$","meta","3",{"name":"robots","content":"noindex, nofollow"}],["$","link","4",{"rel":"icon","href":"/mark.png"}],["$","$L1d","5",{}]]}]}],null]}],null]}],"p":"$@1e","v":null,"s":"$b"}},"a":"$@1f","u":"$@20","b":"web"}
 13:{}
 14:"$f:0:1:d:r:props:children:0:props:serverProvidedParams:params"
 17:null
