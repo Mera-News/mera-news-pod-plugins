@@ -190,7 +190,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     if (v === undefined || !pattern.test(v)) throw new NewsError('bad_input', `The "${key}" in this address is not valid.`, 'Go back to your news and try again.');
     return v;
   };
-  const cursor = (q: URLSearchParams) => (q.has('after') ? arg(q, 'after', /^[\w.:-]{1,200}$/) : null);
+  const cursor = (q: URLSearchParams) => (q.has('after') ? arg(q, 'after', /^[\w.:+/=-]{1,500}$/) : null);
   // `phone` is the device a phone's cookie names; requests from this computer have none.
   const routes: Record<string, (q: URLSearchParams, phone?: string) => Promise<unknown>> = {
     '/api/status/': () => services.reading.status(),

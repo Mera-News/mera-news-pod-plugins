@@ -101,6 +101,19 @@ test('top stories: one page for the world or a country, the named fields only, w
   });
 });
 
+test("the server's own page token passes: base64 with padding, plus and slash", async () => {
+  const { calls, news: n } = news({
+    GetTopHeadlinesForCountry: () => ({ data: { topHeadlinesForCountry: { headlines: [], pageInfo: { endCursor: null, hasNextPage: false } } } }),
+  });
+  const { r, get } = await signedIn({ news: n });
+  await using(r, async () => {
+    const token = 'eyJvZmZzZXQiOjIwfQ+/==';
+    const res = await get(`/api/top/?c=GLOBAL&after=${encodeURIComponent(token)}`);
+    assert.equal(res.status, 200);
+    assert.equal(calls[0].variables.after, token);
+  });
+});
+
 test('a headline the list sends without an English title gets it by article id; English ones are not asked for', async () => {
   const { calls, news: n } = news({
     GetTopHeadlinesForCountry: () => ({
