@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
-const NAV = [
+export const NAV = [
   { href: '/', label: 'Feed', icon: Newspaper },
   { href: '/world/', label: 'World', icon: Globe },
   { href: '/you/', label: 'You', icon: UserRound },
@@ -15,7 +15,7 @@ export function Rail() {
   const path = usePathname();
   const active = (href: string) => (href === '/' ? path === '/' : path.startsWith(href.slice(0, -1)));
   return (
-    <nav aria-label="Main" className="sticky top-0 flex h-dvh w-[76px] shrink-0 flex-col items-center gap-[22px] border-r py-[22px]">
+    <nav aria-label="Main" className="sticky top-0 hidden h-dvh w-[76px] shrink-0 flex-col items-center gap-[22px] border-r py-[22px] md:flex">
       <Link href="/" aria-label="Mera News" className="rounded-[9px]">
         {/* eslint-disable-next-line @next/next/no-img-element -- a static export has no image server */}
         <img src="/mark.png" alt="" width={34} height={34} className="size-[34px] rounded-[9px]" />

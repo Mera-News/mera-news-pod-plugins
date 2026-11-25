@@ -62,6 +62,30 @@ test('static files carry their type, and only the hashed build files are cached 
   }
 });
 
+test('the site can be added to a home screen: every page links the manifest, and every icon it names is served', async () => {
+  const r = await run();
+  try {
+    const page = await r.request({ path: '/' });
+    assert.match(page.body, /<link rel="manifest" href="\/manifest.webmanifest"/);
+    assert.match(page.body, /<link rel="apple-touch-icon" href="\/apple-touch-icon.png"/);
+    const res = await r.request({ path: '/manifest.webmanifest' });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers['content-type'], 'application/manifest+json');
+    const m = JSON.parse(res.body) as { name: string; start_url: string; display: string; icons: { src: string; sizes: string }[] };
+    assert.equal(m.name, 'Mera News');
+    assert.equal(m.start_url, '/');
+    assert.equal(m.display, 'standalone');
+    assert.ok(m.icons.some((i) => i.sizes === '192x192') && m.icons.some((i) => i.sizes === '512x512'));
+    for (const src of [...m.icons.map((i) => i.src), '/apple-touch-icon.png']) {
+      const icon = await r.request({ path: src });
+      assert.equal(icon.status, 200, src);
+      assert.equal(icon.headers['content-type'], 'image/png', src);
+    }
+  } finally {
+    await r.stop();
+  }
+});
+
 test('the export asks no other host for anything, and no file is over 5 MiB', () => {
   for (const f of files(SITE)) {
     assert.ok(statSync(f).size < 5 * 1024 * 1024, f);

@@ -1,0 +1,15 @@
+{
+  "name": "Mera News",
+  "short_name": "Mera News",
+  "description": "Your news, top stories and your profile, from your own Mera News.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#140d10",
+  "theme_color": "#140d10",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/mark.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/mark.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

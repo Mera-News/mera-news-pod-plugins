@@ -45,7 +45,7 @@ function Problem({ error }: { error: ApiError | null }) {
 }
 
 /** What is left to do before the profile is set up, from the pod's own count over every fact. */
-export function SetupPanel({ setup, hasAi }: { setup: Setup; hasAi: boolean }) {
+export function SetupPanel({ setup, hasAi, className }: { setup: Setup; hasAi: boolean; className?: string }) {
   if (setup.complete) return null;
   const rows: [string, string[], ReactNode][] = [
     ['Generating topics for:', setup.findingTopics, 'They appear on each fact below in a minute or two.'],
@@ -53,7 +53,7 @@ export function SetupPanel({ setup, hasAi }: { setup: Setup; hasAi: boolean }) {
     ['No topics yet for:', setup.noTopics, hasAi ? 'Try again on the fact below, or remove it.' : ASK_FOR_TOPICS],
   ];
   return (
-    <section aria-labelledby="setup-title" className="mx-7 flex flex-col gap-4 rounded-[12px] border border-primary/40 bg-accent p-5">
+    <section aria-labelledby="setup-title" className={cn('mx-7 flex flex-col gap-4 rounded-[12px] border border-primary/40 bg-accent p-5', className)}>
       <h2 id="setup-title" className="text-[17px] font-semibold tracking-[-0.01em]">
         Finish setting up your profile
       </h2>
@@ -88,7 +88,7 @@ function addedLine(r: AddResult, hasAi: boolean): string {
 }
 
 /** Type a fact, read it back as it will be saved, then confirm. */
-export function AddFact({ hasAi, onSaved }: { hasAi: boolean; onSaved: () => void }) {
+export function AddFact({ hasAi, onSaved, className }: { hasAi: boolean; onSaved: () => void; className?: string }) {
   const post = usePost();
   const [text, setText] = useState('');
   const [check, setCheck] = useState<string | null>(null);
@@ -123,13 +123,13 @@ export function AddFact({ hasAi, onSaved }: { hasAi: boolean; onSaved: () => voi
   };
 
   return (
-    <div className="flex max-w-[640px] flex-col gap-3 px-7">
+    <div className={cn('flex max-w-[640px] flex-col gap-3 px-7', className)}>
       {check === null ? (
         <form onSubmit={next} className="flex flex-col gap-1.5">
           <label htmlFor="new-fact" className="font-medium">
             Add a fact about you
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 max-md:flex-col max-md:items-start">
             <Input
               id="new-fact"
               value={text}
@@ -170,7 +170,7 @@ export function AddFact({ hasAi, onSaved }: { hasAi: boolean; onSaved: () => voi
   );
 }
 
-function statusLine(f: Fact, hasAi: boolean, staged: number): string {
+export function statusLine(f: Fact, hasAi: boolean, staged: number): string {
   if (f.topicsStatus === 'pending' && hasAi) return 'Generating topics';
   if (f.topics.length === 0) return hasAi ? 'Topics could not be made' : 'No topics yet';
   const fresh = f.topics.filter((t) => !t.reviewed).length;
@@ -181,8 +181,8 @@ function statusLine(f: Fact, hasAi: boolean, staged: number): string {
   return parts.join(' · ');
 }
 
-/** One fact as a board: its topics as chips to keep or remove, and Save, which records the review. */
-export function FactBoard({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boolean; onChanged: () => void }) {
+/** One fact as a board: its topics as chips to keep or remove, and Save, which records the review. Bare, it sits inside a row that already names the fact. */
+export function FactBoard({ fact, hasAi, onChanged, bare }: { fact: Fact; hasAi: boolean; onChanged: () => void; bare?: boolean }) {
   const post = usePost();
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<'save' | 'remove' | 'retry' | null>(null);
@@ -222,8 +222,12 @@ export function FactBoard({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boole
     });
 
   return (
-    <article aria-labelledby={`fact-${fact.id}`} className="flex min-w-0 flex-col gap-3 rounded-[12px] border bg-card p-3.5">
-      <header className="flex flex-col gap-1">
+    <article
+      aria-labelledby={bare ? undefined : `fact-${fact.id}`}
+      aria-label={bare ? fact.statement : undefined}
+      className={cn('flex min-w-0 flex-col gap-3 rounded-[12px] border bg-card p-3.5', bare && 'rounded-none border-0 bg-transparent p-0')}
+    >
+      <header className={cn('flex flex-col gap-1', bare && 'sr-only')}>
         <h3 id={`fact-${fact.id}`} className="font-semibold tracking-[-0.01em] text-pretty">
           {fact.statement}
         </h3>
@@ -236,7 +240,7 @@ export function FactBoard({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boole
       {pending ? (
         <div aria-hidden className="flex flex-wrap gap-1.5">
           {[64, 92, 52, 80].map((w) => (
-            <span key={w} style={{ width: w }} className="h-7 animate-pulse rounded-full bg-muted" />
+            <span key={w} style={{ width: w }} className="h-7 animate-pulse rounded-full bg-muted max-md:h-11" />
           ))}
         </div>
       ) : fact.topics.length === 0 ? (
@@ -255,7 +259,7 @@ export function FactBoard({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boole
               <li
                 key={t.id}
                 className={cn(
-                  'inline-flex h-7 max-w-full items-center gap-0.5 rounded-full border pr-0.5 pl-2.5 text-[12px] transition-colors',
+                  'inline-flex h-7 max-w-full items-center gap-0.5 rounded-full border pr-0.5 pl-2.5 text-[12px] transition-colors max-md:h-11 max-md:pr-0 max-md:pl-4 max-md:text-[15px]',
                   !t.reviewed && !off && 'border-primary/70 text-accent-foreground',
                   off && 'border-dashed text-muted-foreground line-through',
                 )}
@@ -265,7 +269,7 @@ export function FactBoard({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boole
                   type="button"
                   onClick={() => toggle(t.id)}
                   aria-label={off ? `Keep ${t.text}` : `Remove ${t.text}`}
-                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground max-md:size-11"
                 >
                   {off ? <RotateCcw aria-hidden className="size-3" /> : <X aria-hidden className="size-3.5" />}
                 </button>

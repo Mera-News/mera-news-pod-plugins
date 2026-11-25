@@ -10,7 +10,7 @@ import { age, languageLabel, plural, type Report, type Story } from '@/lib/news'
 export function Meta({ report, className }: { report: Report; className?: string }) {
   const parts = [age(report.publishedAt), languageLabel(report.language)].filter(Boolean);
   return (
-    <p className={className ?? 'truncate text-[12px] text-muted-foreground'}>
+    <p className={className ?? 'truncate text-[12px] text-muted-foreground max-md:text-[13px]'}>
       <span className="font-medium text-foreground/80">{report.publisher || 'Unknown publisher'}</span>
       {parts.map((p) => ` · ${p}`)}
     </p>
@@ -32,7 +32,7 @@ export function Headline({ report, size }: { report: Report; size: 'card' | 'row
         className={
           size === 'card'
             ? 'group text-[14px] leading-snug font-semibold tracking-[-0.01em] text-pretty underline-offset-[3px] hover:underline decoration-primary/70'
-            : 'group text-[13px] leading-snug text-pretty underline-offset-[3px] hover:underline decoration-primary/70'
+            : 'group text-[13px] leading-snug text-pretty underline-offset-[3px] hover:underline decoration-primary/70 max-md:text-[15px]'
         }
       >
         {report.titleEn ?? report.title}
@@ -52,7 +52,7 @@ export function Headline({ report, size }: { report: Report; size: 'card' | 'row
 type Reports = { list: Report[]; next: string | null; state: 'idle' | 'loading' | 'done'; error?: ApiError };
 
 /** Every report of the story, from every publisher, loaded a page at a time when asked. */
-function AllReports({ story }: { story: Story }) {
+export function AllReports({ story }: { story: Story }) {
   const get = useApi();
   const [open, setOpen] = useState(false);
   const [r, setR] = useState<Reports>({ list: [], next: null, state: 'idle' });
@@ -70,7 +70,7 @@ function AllReports({ story }: { story: Story }) {
     }
   }
 
-  if (story.reports <= 1) return <p className="text-[12px] text-muted-foreground">1 report</p>;
+  if (story.reports <= 1) return <p className="text-[12px] text-muted-foreground max-md:hidden">1 report</p>;
   // A story the server no longer groups still shows its own report.
   const list = r.state === 'done' && !r.error && r.list.length === 0 ? [story] : r.list;
   const publishers = new Set(list.map((x) => x.publisher)).size;
@@ -84,7 +84,7 @@ function AllReports({ story }: { story: Story }) {
           setOpen(!open);
           if (!open && r.state === 'idle') void load(null);
         }}
-        className="inline-flex h-7 items-center gap-1 self-start rounded-full border px-2.5 text-[12px] text-muted-foreground tabular-nums transition-colors hover:border-primary/60 hover:text-foreground aria-expanded:border-primary aria-expanded:text-accent-foreground"
+        className="inline-flex h-7 items-center gap-1 self-start rounded-full border px-2.5 text-[12px] text-muted-foreground tabular-nums max-md:h-11 max-md:px-4 max-md:text-[14px] transition-colors hover:border-primary/60 hover:text-foreground aria-expanded:border-primary aria-expanded:text-accent-foreground"
       >
         {plural(story.reports, 'report')}
         <ChevronDown aria-hidden className="size-3.5 transition-transform in-aria-expanded:rotate-180" />

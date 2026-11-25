@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { ApiError, useApi, usePost, type Status } from '@/components/session';
+import { ApiError, onPhone, useApi, usePost, type Status } from '@/components/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -52,8 +52,9 @@ export function readingLine(s: Status): string {
 export function PodSection({ status }: { status: Status }) {
   // Fixes addressed to the assistant are for it to act on, not for this page.
   const problems = status.problems.filter((p) => p.who === 'person');
+  const here = onPhone() ? 'your computer' : 'this computer';
   return (
-    <Section id="pod" title="Mera News on this computer" lead={`Mera Labs keeps no copy of your profile. It stays on this computer${status.ai ? ', and your AI service sees your facts to make topics and picks' : ''}.`}>
+    <Section id="pod" title={`Mera News on ${here}`} lead={`Mera Labs keeps no copy of your profile. It stays on ${here}${status.ai ? ', and your AI service sees your facts to make topics and picks' : ''}.`}>
       <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-6 gap-y-3">
         <dt className="text-muted-foreground">Reading</dt>
         <dd>{readingLine(status)}</dd>
@@ -161,13 +162,13 @@ export function DigestSection() {
         {times.length ? (
           <ul aria-labelledby="digest-times" className="flex flex-wrap gap-1.5">
             {times.map((t) => (
-              <li key={t} className="inline-flex h-8 items-center gap-0.5 rounded-full border border-primary/70 pr-1 pl-3 text-[13px] text-accent-foreground tabular-nums">
+              <li key={t} className="inline-flex h-8 items-center gap-0.5 rounded-full border border-primary/70 pr-1 pl-3 text-[13px] text-accent-foreground tabular-nums max-md:h-11 max-md:pl-4 max-md:text-[15px]">
                 {t}
                 <button
                   type="button"
                   aria-label={`Remove ${t}`}
                   onClick={() => (setTimes(times.filter((x) => x !== t)), setDone(null))}
-                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground max-md:size-11"
                 >
                   <X aria-hidden className="size-3.5" />
                 </button>
@@ -296,7 +297,7 @@ export function AiServiceSection({ status, onSaved }: { status: Status; onSaved:
               className="h-9"
             />
             <p id="ai-key-note" className="text-[12px] text-muted-foreground">
-              Kept on this computer and never shown again. Leave it empty to keep the saved key for the same address.
+              Kept on {onPhone() ? 'your computer' : 'this computer'} and never shown again. Leave it empty to keep the saved key for the same address.
             </p>
           </div>
           <p className="text-[13px] text-muted-foreground">Mera News sends your facts and the headlines it reads to this service to make topics and picks.</p>

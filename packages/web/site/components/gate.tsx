@@ -1,23 +1,28 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/top-bar';
-import { useConnection } from '@/components/session';
+import { onPhone, useConnection } from '@/components/session';
 
 const ASK = 'Ask your assistant to open Mera News.';
 
 /** Shows the page once the pod has let this tab in, and says what to do until then. */
 export function Gate({ children }: { children: ReactNode }) {
   const c = useConnection();
+  const pairing = usePathname().startsWith('/pair');
   switch (c.kind) {
     case 'ready':
       return children;
     case 'connecting':
       return (
-        <p role="status" className="px-7 py-16 text-muted-foreground sm:text-center">
-          Connecting to Mera News
-        </p>
+        <div role="status" className="flex flex-col items-center gap-4 px-6 py-16 text-center text-muted-foreground max-md:flex-1 max-md:justify-center max-md:text-[16px] md:px-7">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a static export has no image server */}
+          <img src="/mark.png" alt="" width={64} height={64} className="size-16 rounded-[16px] md:hidden" />
+          {/* A phone that opened its pairing link is swapping the code now. */}
+          <p>{pairing ? 'Pairing this phone' : 'Connecting to Mera News'}</p>
+        </div>
       );
     case 'no-link':
       return (
@@ -41,7 +46,14 @@ export function Gate({ children }: { children: ReactNode }) {
         </Empty>
       );
     case 'offline':
-      return (
+      return onPhone() ? (
+        <Empty title="Mera News cannot be reached">
+          <p>Your computer needs to be awake with Mera News running, and this phone connected to Tailscale or your tunnel.</p>
+          <Button className="mt-4" onClick={() => location.reload()}>
+            Try again
+          </Button>
+        </Empty>
+      ) : (
         <Empty title="Mera News is not running">
           <p>Open your AI app, or start your pod, then try again.</p>
           <Button className="mt-4" onClick={() => location.reload()}>
@@ -51,7 +63,7 @@ export function Gate({ children }: { children: ReactNode }) {
       );
     case 'not-paired':
       return (
-        <Empty title="Pair this phone with Mera News">
+        <Empty title="Pair this phone with your Mera News">
           <p>On your computer, open Mera News, go to You and choose Add a phone. Then scan the code with this phone&apos;s camera.</p>
         </Empty>
       );

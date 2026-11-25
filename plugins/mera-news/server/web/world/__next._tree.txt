@@ -1,4 +1,5 @@
-:HL["/_next/static/chunks/3iua--5jpd5zu.css","style"]
+:HL["/_next/static/chunks/08urx1cpnf0ze.css","style"]
+:HL["/mark.png","image"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"world","h":96,"c":"$Q2"}]]
 0:{"b":"web","t":{"t":{"s":"","h":80,"c":"$Q1"}}}

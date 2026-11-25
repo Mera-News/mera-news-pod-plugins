@@ -5,9 +5,11 @@ import { Heading } from '@/components/heading';
 import { AddFact, FactBoard, SetupPanel, type Fact, type Setup } from '@/components/profile';
 import { ApiError, useApi, useConnection, type Status } from '@/components/session';
 import { PhonesSection } from '@/components/phones';
+import { PhoneYou } from '@/components/phone/you';
 import { AiServiceSection, DigestSection, PodSection } from '@/components/settings';
 import { TopBar } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
+import { usePhone } from '@/lib/use-phone';
 
 export default function YouPage() {
   const c = useConnection();
@@ -41,6 +43,8 @@ function You({ initial }: { initial: Status }) {
   }, [making, load]);
 
   const hasAi = !!status.ai;
+  const phone = usePhone();
+  if (phone) return <PhoneYou status={status} profile={profile} error={error} reload={() => void load()} />;
   const topics = profile?.facts.reduce((n, f) => n + f.topics.length, 0) ?? status.counts.topics;
   return (
     <>

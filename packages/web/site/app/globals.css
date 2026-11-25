@@ -15,6 +15,11 @@
   --accent-foreground: #047857;
   --ring: #10b981;
   --radius: 12px;
+  /* Used only by the phone version; defined here so every token resolves. */
+  --note: #0000000d;
+  --read: #15803d;
+  --tabbar: #ffffffdb;
+  --tab-active: #e78a5324;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +47,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-ring: var(--ring);
+  --color-note: var(--note);
+  --color-read: var(--read);
+  --color-tabbar: var(--tabbar);
+  --color-tab-active: var(--tab-active);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -71,5 +80,76 @@
   code {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 0.92em;
+  }
+}
+
+/*
+ * The phone version: the Mera News app's world. A warm-to-teal gradient ground, frosted cards and
+ * the app's orange, scoped below 768px so the desktop keeps its own look. Light follows the phone.
+ */
+@media (max-width: 767.98px) {
+  :root {
+    --background: #f7ece6;
+    --foreground: #1c1416;
+    --card: #ffffffa8;
+    --muted: #3c281e12;
+    --muted-foreground: #66574f;
+    --border: #3c1e141a;
+    --primary: #e78a53;
+    --primary-foreground: #1a0e07;
+    --accent: #e78a5329;
+    --accent-foreground: #9c4416;
+    --ring: #d9733a;
+    --note: #3c1e140f;
+    --read: #15803d;
+    --tabbar: #ffffffdb;
+    --tab-active: #e78a5324;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: transparent;
+    font-size: 16px;
+  }
+  /* Fixed to the screen, so the ground stays put while the page scrolls, as in the app. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(120% 55% at 0% 0%, #f2cdb8 0%, transparent 62%),
+      radial-gradient(95% 55% at 100% 100%, #c9e3ea 0%, transparent 66%),
+      var(--background);
+  }
+  /* Safari zooms into any field under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 767.98px) and (prefers-color-scheme: dark) {
+  :root {
+    --background: #140d10;
+    --foreground: #f3eeef;
+    --card: #ffffff12;
+    --muted: #ffffff14;
+    --muted-foreground: #b5aaac;
+    --border: #ffffff1a;
+    --accent: #e78a5329;
+    --accent-foreground: #f2a77a;
+    --ring: #e78a53;
+    --note: #00000047;
+    --read: #4ade80;
+    --tabbar: #1c181ae0;
+    --tab-active: #ffffff1a;
+  }
+  body::before {
+    background:
+      radial-gradient(120% 55% at 0% 0%, #4d2531 0%, transparent 62%),
+      radial-gradient(70% 40% at 100% 28%, #3b2a1f 0%, transparent 70%),
+      radial-gradient(95% 55% at 100% 100%, #0e3a48 0%, transparent 66%),
+      var(--background);
   }
 }

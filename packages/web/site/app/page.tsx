@@ -2,118 +2,30 @@
 
 import { ChevronDown } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Lane, LaneSkeleton, type Show } from '@/components/lane';
+import { PhoneFeed } from '@/components/phone/feed';
 import { SearchField } from '@/components/search-field';
-import { ApiError, useApi, useConnection } from '@/components/session';
 import { Empty, PublisherLine, TopBar } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { matches, type FeedPage, type FeedStory, type FeedSummary } from '@/lib/feed';
+import { matches, type FeedStory } from '@/lib/feed';
 import { plural } from '@/lib/news';
+import { useFeed } from '@/lib/use-feed';
+import { usePhone } from '@/lib/use-phone';
 
-/** How often the numbers are asked again while the tab is in front, so the lanes fill in as stories are judged. */
-const POLL_MS = 5000;
 /** Past this many facts the lanes scroll sideways, and a picker jumps to one. */
 const LANES_IN_VIEW = 5;
 
-type Load = 'loading' | 'more' | 'end' | 'error';
-
-const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError('Mera News could not answer.', 'Try again in a minute.'));
-
 export default function FeedPage() {
-  const c = useConnection();
-  const get = useApi();
-  const facts = c.kind === 'ready' ? c.status.counts.facts : 0;
-  const ai = c.kind === 'ready' && !!c.status.ai;
+  return usePhone() ? <PhoneFeed /> : <DesktopFeed />;
+}
 
-  const [run, setRun] = useState<string | null>(null);
-  const [summary, setSummary] = useState<FeedSummary | null>(null);
-  const [stories, setStories] = useState<FeedStory[]>([]);
-  // The cursor of every page loaded so far, so a change of verdicts can read them all again.
-  const [cursors, setCursors] = useState<string[]>([]);
-  const [next, setNext] = useState<string | null>(null);
-  const [state, setState] = useState<Load>('loading');
-  const [error, setError] = useState<ApiError | null>(null);
+function DesktopFeed() {
   const [show, setShow] = useState<Show>('all');
   const [q, setQ] = useState('');
-  const sentinel = useRef<HTMLDivElement>(null);
+  const { ready, facts, ai, summary, stories, next, state, error, load, sentinel } = useFeed(q);
   const lanes = useRef<HTMLDivElement>(null);
-
-  const merge = (list: FeedStory[], page: FeedStory[]) => {
-    const at = new Map(list.map((s, i) => [s.id, i]));
-    const out = [...list];
-    for (const s of page) {
-      if (at.has(s.id)) out[at.get(s.id)!] = s;
-      else out.push(s);
-    }
-    return out;
-  };
-
-  const load = useCallback(
-    async (after: string | null) => {
-      setState('loading');
-      setError(null);
-      try {
-        const page = await get<FeedPage>(`/api/feed/${after ? `?after=${encodeURIComponent(after)}` : ''}`);
-        if (!after) {
-          setStories(page.stories);
-          setCursors([`${page.run}.0`]);
-        } else {
-          setStories((list) => merge(list, page.stories));
-          setCursors((list) => [...list, after]);
-        }
-        setRun(page.run);
-        setSummary(page.summary);
-        setNext(page.nextCursor);
-        setState(page.nextCursor ? 'more' : 'end');
-      } catch (e) {
-        setError(asError(e));
-        setState('error');
-      }
-    },
-    [get],
-  );
-
-  useEffect(() => {
-    if (facts > 0) void load(null);
-  }, [facts, load]);
-
-  // The next page loads before the reader reaches the end; while searching, every page loads.
-  useEffect(() => {
-    if (state !== 'more') return;
-    if (q) return void load(next);
-    const el = sentinel.current;
-    if (!el) return;
-    const seen = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void load(next), { rootMargin: '800px 0px' });
-    seen.observe(el);
-    return () => seen.disconnect();
-  }, [state, next, load, q]);
-
-  // While the tab is in front, the numbers are read again; when a verdict lands, every loaded page is too.
-  const latest = useRef({ summary, cursors, state });
-  latest.current = { summary, cursors, state };
-  useEffect(() => {
-    if (!run) return;
-    const tick = async () => {
-      const now = latest.current;
-      if (document.visibilityState !== 'visible' || now.state === 'loading' || !now.summary) return;
-      try {
-        const counts = await get<FeedPage>(`/api/feed/?after=${run}.0&limit=0`);
-        const s = counts.summary;
-        if (s.picked === now.summary.picked && s.leftOut === now.summary.leftOut) return;
-        let list: FeedStory[] = [];
-        for (const after of now.cursors) list = merge(list, (await get<FeedPage>(`/api/feed/?after=${encodeURIComponent(after)}`)).stories);
-        setStories((old) => merge(old, list));
-        setSummary((old) => (old ? { ...s, publishers: Math.max(s.publishers, old.publishers), languages: Math.max(s.languages, old.languages) } : s));
-      } catch (e) {
-        // A run the pod no longer holds starts again from the first page.
-        if (e instanceof ApiError && /expired/.test(e.message)) void load(null);
-      }
-    };
-    const timer = setInterval(() => void tick(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [run, get, load]);
 
   const shown = useMemo(() => (q ? stories.filter((s) => matches(s, q)) : stories), [stories, q]);
   const byFact = useMemo(() => {
@@ -122,7 +34,7 @@ export default function FeedPage() {
     return m;
   }, [shown]);
 
-  if (c.kind === 'ready' && facts === 0) {
+  if (ready && facts === 0) {
     return (
       <>
         <TopBar>

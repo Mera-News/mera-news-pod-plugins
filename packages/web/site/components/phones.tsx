@@ -104,7 +104,7 @@ function DeviceList({ devices, onRemoved }: { devices: Device[]; onRemoved: () =
   if (!devices.length) return <p className="text-[13px] text-muted-foreground">No phones yet.</p>;
   return (
     <>
-      <ul className="flex flex-col divide-y rounded-[12px] border">
+      <ul className="flex flex-col divide-y rounded-[12px] border max-md:rounded-none max-md:border-x-0">
         {devices.map((d) => (
           <li key={d.id} className="flex items-center gap-3 py-2 pr-2 pl-3">
             <div className="min-w-0 flex-1">
