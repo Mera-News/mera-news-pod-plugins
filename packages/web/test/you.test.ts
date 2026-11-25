@@ -43,7 +43,7 @@ async function using<T>(r: Running, fn: () => Promise<T>) {
   }
 }
 
-test('the profile is every page of facts, with only the fields the page shows, and where setup stands', async () => {
+test('the profile is every page of facts, with only the fields the page shows', async () => {
   const pages: Record<number, ProfileView> = {
     0: { facts: [fact('a', { reviewedAt: '2026-01-02T00:00:00.000Z' })], nextOffset: 1, setup: SETUP },
     1: { facts: [fact('b', { topicsStatus: 'pending', topics: [] })], setup: SETUP },
@@ -59,7 +59,6 @@ test('the profile is every page of facts, with only the fields the page shows, a
         { id: 'a', statement: 'Fact a', topicsStatus: 'done', needsReview: true, reviewed: true, topics: [{ id: 'a-t1', text: 'topic a', source: 'generated', reviewed: false }] },
         { id: 'b', statement: 'Fact b', topicsStatus: 'pending', needsReview: true, reviewed: false, topics: [] },
       ],
-      setup: SETUP,
     });
   });
 });

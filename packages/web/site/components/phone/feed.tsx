@@ -3,7 +3,8 @@
 import { ChevronDown, ChevronRight, EyeOff, Newspaper, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useId, useMemo, useState } from 'react';
-import { LevelChip, NoteBox, Panel, PhoneHeader, PhoneHeadline, Pills, ReadOn, ShareButton, SourceRow, StoryImage, StoryRow } from '@/components/phone/ui';
+import { Headline } from '@/components/headline';
+import { LevelChip, NoteBox, Panel, PhoneHeader, Pills, ReadOn, ShareButton, SourceRow, StoryImage, StoryRow } from '@/components/phone/ui';
 import { Empty, PublisherLine } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
 import { byLevel, type FeedStory, type FeedSummary } from '@/lib/feed';
@@ -74,7 +75,7 @@ function PickCard({ s }: { s: FeedStory }) {
       <StoryImage src={s.image} className="aspect-[12/5] w-full" />
       <div className="flex flex-col gap-3 p-4">
         <SourceRow report={s} />
-        <PhoneHeadline report={s} as="h2" className="text-[20px] leading-[1.3] font-bold tracking-[-0.015em]" />
+        <Headline report={s} size="phone-card" />
         <NoteBox
           top={
             <>

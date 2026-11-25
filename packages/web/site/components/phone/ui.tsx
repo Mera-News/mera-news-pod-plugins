@@ -3,7 +3,8 @@
 import { Check, Clock, ExternalLink, Newspaper, Share } from 'lucide-react';
 import { useState, type ComponentType, type HTMLAttributes, type ReactNode } from 'react';
 import { LEVEL_LABEL, type Level } from '@/lib/feed';
-import { age, type Report, type Story } from '@/lib/news';
+import { Headline } from '@/components/headline';
+import { age, languageName, type Report, type Story } from '@/lib/news';
 import { cn } from '@/lib/utils';
 
 /** A frosted, rounded panel on the gradient, the app's card. */
@@ -69,26 +70,6 @@ export function LevelChip({ level }: { level: Level }) {
   return <span className={cn('inline-flex h-6 items-center rounded-full px-2.5 text-[13px] font-semibold', LEVEL_CHIP[level])}>{PHONE_LABEL[level]}</span>;
 }
 
-const names = (() => {
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'language' });
-  } catch {
-    return null;
-  }
-})();
-
-/** A language code as its English name: nl is Dutch. Unknown codes show nothing. */
-export function languageName(code: string): string {
-  if (!code || code === 'und') return '';
-  const base = code.split('-')[0];
-  try {
-    const n = names?.of(base);
-    return n && n !== base ? n : base.toUpperCase();
-  } catch {
-    return base.toUpperCase();
-  }
-}
-
 /** 5m ago, 3h ago, Yesterday, 12 Nov. */
 export const ago = (iso: string) => {
   const a = age(iso);
@@ -101,26 +82,6 @@ export function StoryImage({ src, className }: { src?: string; className: string
   if (!src || !shown) return null;
   // eslint-disable-next-line @next/next/no-img-element -- a static export has no image server
   return <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setShown(false)} className={cn('bg-muted object-cover', className)} />;
-}
-
-/** The headline as a link to the publisher, in English where there is a translation, the original under it. */
-export function PhoneHeadline({ report, className, as: As = 'h3' }: { report: Report; className: string; as?: 'h2' | 'h3' | 'p' }) {
-  const lang = report.language === 'und' ? undefined : report.language;
-  return (
-    <>
-      <As className="min-w-0">
-        <a href={report.link} target="_blank" rel="noopener noreferrer" lang={report.titleEn ? 'en' : lang} className={cn('text-pretty', className)}>
-          {report.titleEn ?? report.title}
-          <span className="sr-only"> (opens {report.publisher || 'the publisher'}&apos;s site)</span>
-        </a>
-      </As>
-      {report.titleEn && (
-        <p lang={lang} className="line-clamp-2 text-[14px] leading-snug text-muted-foreground">
-          {report.title}
-        </p>
-      )}
-    </>
-  );
 }
 
 /** Shares the publisher's link with the phone's share sheet, or copies it where there is none. */
@@ -204,7 +165,7 @@ export function StoryRow({ story, children, footer }: { story: Story; children?:
       </div>
       <div className="flex gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <PhoneHeadline report={story} className="text-[17px] leading-snug font-semibold tracking-[-0.01em]" />
+          <Headline report={story} size="phone-row" />
           <p className="truncate text-[13px] text-muted-foreground">{story.publisher || 'Unknown publisher'}</p>
         </div>
         <StoryImage src={story.image} className="size-[92px] shrink-0 rounded-[14px]" />

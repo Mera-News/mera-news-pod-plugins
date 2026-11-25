@@ -1,10 +1,9 @@
 'use client';
 
-import { Check, RotateCcw, X } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { Check, MessageCircle, RotateCcw, X } from 'lucide-react';
+import { useState } from 'react';
 import { ApiError, usePost } from '@/components/session';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { plural } from '@/lib/news';
 import { cn } from '@/lib/utils';
 
@@ -24,14 +23,6 @@ export interface Fact {
   topics: Topic[];
 }
 
-export interface Setup {
-  complete: boolean;
-  findingTopics: string[];
-  toReview: string[];
-  noTopics: string[];
-}
-
-export const MAX_STATEMENT = 300;
 const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError('Mera News could not answer.', 'Try again in a minute.'));
 const ASK_FOR_TOPICS = 'Ask your assistant for topics.';
 
@@ -44,131 +35,18 @@ function Problem({ error }: { error: ApiError | null }) {
   );
 }
 
-/** What is left to do before the profile is set up, from the pod's own count over every fact. */
-export function SetupPanel({ setup, hasAi, className }: { setup: Setup; hasAi: boolean; className?: string }) {
-  if (setup.complete) return null;
-  const rows: [string, string[], ReactNode][] = [
-    ['Generating topics for:', setup.findingTopics, 'They appear on each fact below in a minute or two.'],
-    ['Topics to review for:', setup.toReview, 'Keep the topics that fit, remove the rest, then press Save on the fact.'],
-    ['No topics yet for:', setup.noTopics, hasAi ? 'Try again on the fact below, or remove it.' : ASK_FOR_TOPICS],
-  ];
+/** How a fact gets added: by telling Mera. The second line names where, until the site has its own chat with Mera. */
+export function AddFactNote({ className }: { className?: string }) {
   return (
-    <section aria-labelledby="setup-title" className={cn('mx-7 flex flex-col gap-4 rounded-[12px] border border-primary/40 bg-accent p-5', className)}>
-      <h2 id="setup-title" className="text-[17px] font-semibold tracking-[-0.01em]">
-        Finish setting up your profile
-      </h2>
-      <dl className="flex flex-col gap-3">
-        {rows
-          .filter(([, list]) => list.length > 0)
-          .map(([label, list, next]) => (
-            <div key={label}>
-              <dt className="inline font-medium">{label}</dt> <dd className="inline">{list.map((s) => `“${s}”`).join(', ')}</dd>
-              <dd className="mt-0.5 text-muted-foreground">{next}</dd>
-            </div>
-          ))}
-      </dl>
-    </section>
+    <p className={cn('flex items-start gap-2 text-muted-foreground', className)}>
+      <MessageCircle aria-hidden className="mt-[3px] size-4 shrink-0" />
+      To add a fact, tell Mera about yourself. Ask your assistant to add it.
+    </p>
   );
 }
 
-type AddResult = { result: 'added' | 'already' | 'conflict' | 'retried'; conflictsWith?: string; localCoverageWeaker?: boolean };
-
-function addedLine(r: AddResult, hasAi: boolean): string {
-  const near = r.localCoverageWeaker ? ' News near this place may be thin, because the news server cannot look up places yet.' : '';
-  switch (r.result) {
-    case 'added':
-      return (hasAi ? 'Saved. Its topics appear below in a minute or two.' : `Saved. ${ASK_FOR_TOPICS}`) + near;
-    case 'retried':
-      return 'You already have this fact. Mera News is making its topics again.' + near;
-    case 'already':
-      return 'You already have this fact.';
-    case 'conflict':
-      return `This does not fit with “${r.conflictsWith}”. If that changed, remove it first, then add this one.`;
-  }
-}
-
-/** Type a fact, read it back as it will be saved, then confirm. */
-export function AddFact({ hasAi, onSaved, className }: { hasAi: boolean; onSaved: () => void; className?: string }) {
-  const post = usePost();
-  const [text, setText] = useState('');
-  const [check, setCheck] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
-  const [error, setError] = useState<ApiError | null>(null);
-
-  const next = (e: FormEvent) => {
-    e.preventDefault();
-    const statement = text.replace(/\s+/g, ' ').trim();
-    if (!statement) return;
-    setDone(null);
-    setError(null);
-    setCheck(statement);
-  };
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await post<AddResult>('/api/facts/', { statement: check });
-      setDone(addedLine(r, hasAi));
-      if (r.result !== 'conflict') {
-        setText('');
-        setCheck(null);
-      }
-      onSaved();
-    } catch (e) {
-      setError(asError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className={cn('flex max-w-[640px] flex-col gap-3 px-7', className)}>
-      {check === null ? (
-        <form onSubmit={next} className="flex flex-col gap-1.5">
-          <label htmlFor="new-fact" className="font-medium">
-            Add a fact about you
-          </label>
-          <div className="flex gap-2 max-md:flex-col max-md:items-start">
-            <Input
-              id="new-fact"
-              value={text}
-              maxLength={MAX_STATEMENT}
-              autoComplete="off"
-              placeholder="Such as: I live in Utrecht, or I work as a nurse"
-              onChange={(e) => setText(e.target.value)}
-              className="h-9 text-sm"
-            />
-            <Button type="submit" variant="outline" disabled={!text.trim()}>
-              Next
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div role="group" aria-labelledby="check-title" className="flex flex-col gap-3 rounded-[12px] border bg-card p-4">
-          <p id="check-title" className="text-muted-foreground">
-            Mera News will remember this about you. Is it right?
-          </p>
-          <p className="text-[15px] font-semibold tracking-[-0.01em]">{check}</p>
-          <div className="flex gap-2">
-            <Button onClick={() => void save()} disabled={busy}>
-              {busy ? 'Saving' : 'Save fact'}
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => setCheck(null)}>
-              Change it
-            </Button>
-          </div>
-        </div>
-      )}
-      <Problem error={error} />
-      {done && (
-        <p role="status" className="text-[13px] text-muted-foreground">
-          {done}
-        </p>
-      )}
-    </div>
-  );
-}
+/** Topics are waiting for the person to keep or remove them. */
+export const reviewDue = (f: Fact) => f.topics.length > 0 && f.needsReview && (!f.reviewed || f.topics.some((t) => !t.reviewed));
 
 export function statusLine(f: Fact, hasAi: boolean, staged: number): string {
   if (f.topicsStatus === 'pending' && hasAi) return 'Generating topics';
@@ -177,6 +55,7 @@ export function statusLine(f: Fact, hasAi: boolean, staged: number): string {
   const parts = [plural(f.topics.length - staged, 'topic')];
   if (staged) parts.push(`${staged} to remove`);
   else if (fresh) parts.push(`${fresh} new to review`);
+  else if (reviewDue(f)) parts.push('To review');
   else if (f.needsReview && f.reviewed) parts.push('Reviewed');
   return parts.join(' · ');
 }
@@ -191,7 +70,7 @@ export function FactBoard({ fact, hasAi, onChanged, bare }: { fact: Fact; hasAi:
   const [error, setError] = useState<ApiError | null>(null);
   // With no AI service nothing makes topics, so a fact waiting for them simply has none yet.
   const pending = fact.topicsStatus === 'pending' && hasAi;
-  const toReview = fact.topics.length > 0 && fact.needsReview && (!fact.reviewed || fact.topics.some((t) => !t.reviewed));
+  const toReview = reviewDue(fact);
   const live = fact.topics.filter((t) => !removed.has(t.id));
   const staged = fact.topics.length - live.length;
 
@@ -278,6 +157,8 @@ export function FactBoard({ fact, hasAi, onChanged, bare }: { fact: Fact; hasAi:
           })}
         </ul>
       )}
+
+      {toReview && !pending && <p className="text-[12px] text-pretty text-muted-foreground max-md:text-[14px]">Keep the topics that fit, remove the rest, then press Save.</p>}
 
       <Problem error={error} />
 

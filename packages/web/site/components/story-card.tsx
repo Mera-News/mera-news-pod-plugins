@@ -1,7 +1,8 @@
 'use client';
 
-import { ChevronDown, ExternalLink } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
+import { Headline } from '@/components/headline';
 import { Button } from '@/components/ui/button';
 import { ApiError, useApi } from '@/components/session';
 import { age, languageLabel, plural, type Report, type Story } from '@/lib/news';
@@ -14,38 +15,6 @@ export function Meta({ report, className }: { report: Report; className?: string
       <span className="font-medium text-foreground/80">{report.publisher || 'Unknown publisher'}</span>
       {parts.map((p) => ` · ${p}`)}
     </p>
-  );
-}
-
-/** The headline in English where there is a translation, with the original under it. */
-export function Headline({ report, size }: { report: Report; size: 'card' | 'row' }) {
-  const lang = report.language === 'und' ? undefined : report.language;
-  const Wrap = size === 'card' ? 'h3' : 'p';
-  return (
-    <>
-      <Wrap className="min-w-0">
-      <a
-        href={report.link}
-        target="_blank"
-        rel="noopener noreferrer"
-        lang={report.titleEn ? 'en' : lang}
-        className={
-          size === 'card'
-            ? 'group text-[14px] leading-snug font-semibold tracking-[-0.01em] text-pretty underline-offset-[3px] hover:underline decoration-primary/70'
-            : 'group text-[13px] leading-snug text-pretty underline-offset-[3px] hover:underline decoration-primary/70 max-md:text-[15px]'
-        }
-      >
-        {report.titleEn ?? report.title}
-        <ExternalLink aria-hidden className="ml-1 inline size-3 -translate-y-px text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
-        <span className="sr-only"> (opens {report.publisher || 'the publisher'}&apos;s site)</span>
-      </a>
-      </Wrap>
-      {report.titleEn && (
-        <p lang={lang} className="line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
-          {report.title}
-        </p>
-      )}
-    </>
   );
 }
 

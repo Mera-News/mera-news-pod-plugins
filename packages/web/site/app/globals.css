@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
-/* Mera News colours: emerald on near-black, with a light theme that follows the computer. */
+/* dark: follows the same choice as the tokens below. */
+@custom-variant dark {
+  &:where([data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
+/* Mera News colours: emerald on near-black, with a light theme. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --background: #f7f7f7;
   --foreground: #0a0a0a;
   --card: #ffffff;
@@ -15,16 +27,19 @@
   --accent-foreground: #047857;
   --ring: #10b981;
   --radius: 12px;
-  /* Used only by the phone version; defined here so every token resolves. */
+  /* The box behind a reason. */
   --note: #0000000d;
+  /* Used only by the phone version; defined here so every token resolves. */
   --read: #15803d;
   --tabbar: #fffffff5;
   --tab-active: #e78a5324;
   --header: #f7f7f7d9;
 }
 
+/* Dark follows the computer unless You > Appearance says otherwise (data-theme, set before first paint). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --background: #0a0a0a;
     --foreground: #e5e5e5;
     --card: #141414;
@@ -33,7 +48,21 @@
     --border: #262626;
     --accent: #10b98122;
     --accent-foreground: #34d399;
+    --note: #ffffff0d;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #e5e5e5;
+  --card: #141414;
+  --muted: #1c1c1c;
+  --muted-foreground: #8a8a8a;
+  --border: #262626;
+  --accent: #10b98122;
+  --accent-foreground: #34d399;
+  --note: #ffffff0d;
 }
 
 @theme inline {
@@ -134,7 +163,8 @@
 }
 
 @media (max-width: 767.98px) and (prefers-color-scheme: dark) {
-  :root {
+  /* The app's ground: warm at the top right, rose down the left, a teal pool low in the middle. */
+  :root:not([data-theme="light"]) {
     --background: #1d1a1c;
     --foreground: #f3eeef;
     --card: #ffffff1c;
@@ -150,8 +180,33 @@
     --tab-active: #ffffff1a;
     --header: #413f40f2;
   }
-  /* The app's ground: warm at the top right, rose down the left, a teal pool low in the middle. */
-  body::before {
+  :root:not([data-theme="light"]) body::before {
+    background:
+      radial-gradient(90% 45% at 100% 6%, #4c2c1a 0%, transparent 72%),
+      radial-gradient(85% 50% at 0% 42%, #3d1c24 0%, transparent 72%),
+      radial-gradient(90% 45% at 50% 82%, #0e3242 0%, transparent 72%),
+      var(--background);
+  }
+}
+
+@media (max-width: 767.98px) {
+  :root[data-theme="dark"] {
+    --background: #1d1a1c;
+    --foreground: #f3eeef;
+    --card: #ffffff1c;
+    --muted: #ffffff14;
+    --muted-foreground: #b5aaac;
+    --border: #ffffff1a;
+    --accent: #e78a5329;
+    --accent-foreground: #f2a77a;
+    --ring: #e78a53;
+    --note: #00000047;
+    --read: #4ade80;
+    --tabbar: #2a2628f5;
+    --tab-active: #ffffff1a;
+    --header: #413f40f2;
+  }
+  :root[data-theme="dark"] body::before {
     background:
       radial-gradient(90% 45% at 100% 6%, #4c2c1a 0%, transparent 72%),
       radial-gradient(85% 50% at 0% 42%, #3d1c24 0%, transparent 72%),

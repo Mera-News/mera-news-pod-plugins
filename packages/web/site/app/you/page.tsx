@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Heading } from '@/components/heading';
-import { AddFact, FactBoard, SetupPanel, type Fact, type Setup } from '@/components/profile';
+import { AddFactNote, FactBoard, type Fact } from '@/components/profile';
 import { ApiError, useApi, useConnection, type Status } from '@/components/session';
 import { PhonesSection } from '@/components/phones';
 import { PhoneYou } from '@/components/phone/you';
-import { AiServiceSection, DigestSection, KeepRunningSection, PodSection, SignOutSection } from '@/components/settings';
+import { AiServiceSection, AppearanceSection, DigestSection, KeepRunningSection, PodSection, SignOutSection } from '@/components/settings';
 import { TopBar } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
 import { usePhone } from '@/lib/use-phone';
@@ -19,12 +19,12 @@ export default function YouPage() {
 function You({ initial }: { initial: Status }) {
   const get = useApi();
   const [status, setStatus] = useState(initial);
-  const [profile, setProfile] = useState<{ facts: Fact[]; setup: Setup } | null>(null);
+  const [profile, setProfile] = useState<{ facts: Fact[] } | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([get<{ facts: Fact[]; setup: Setup }>('/api/profile/'), get<Status>('/api/status/')]);
+      const [p, s] = await Promise.all([get<{ facts: Fact[] }>('/api/profile/'), get<Status>('/api/status/')]);
       setProfile(p);
       setStatus(s);
       setError(null);
@@ -61,8 +61,7 @@ function You({ initial }: { initial: Status }) {
             ['Topics', topics.toLocaleString('en')],
           ]}
         />
-        {profile && <SetupPanel setup={profile.setup} hasAi={hasAi} />}
-        <AddFact hasAi={hasAi} onSaved={() => void load()} />
+        <AddFactNote className="max-w-[68ch] px-7" />
         {error && (
           <div role="alert" className="flex flex-col items-start gap-3 px-7">
             <p>
@@ -81,7 +80,7 @@ function You({ initial }: { initial: Status }) {
           </div>
         ) : profile && profile.facts.length === 0 ? (
           <p className="max-w-[68ch] px-7 text-muted-foreground">
-            No facts yet. Add one above, or ask your assistant to set up your news profile. Where you live, your work and the news you follow are good places to start.
+            No facts yet. Where you live, your work and the news you follow are good places to start.
           </p>
         ) : (
           profile && (
@@ -97,6 +96,7 @@ function You({ initial }: { initial: Status }) {
         <DigestSection />
         <AiServiceSection status={status} onSaved={() => void load()} />
         <PodSection status={status} />
+        <AppearanceSection />
         <KeepRunningSection />
         <PhonesSection />
         <SignOutSection />

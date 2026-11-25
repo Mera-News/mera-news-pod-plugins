@@ -4,6 +4,7 @@ import { Gate } from '@/components/gate';
 import { Rail } from '@/components/rail';
 import { SessionProvider } from '@/components/session';
 import { TabBar } from '@/components/tab-bar';
+import { APPEARANCE_SCRIPT } from '@/lib/appearance';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -30,7 +31,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // The head script sets data-theme before React loads.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_SCRIPT }} />
+      </head>
       <body className="flex min-h-dvh bg-background font-sans text-foreground antialiased">
         <SessionProvider>
           <Rail />

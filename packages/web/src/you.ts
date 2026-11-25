@@ -69,10 +69,8 @@ export function createYou(services: PodServices, dataDir: string) {
   async function profile() {
     const facts = [];
     let offset: number | undefined = 0;
-    let setup!: Awaited<ReturnType<PodServices['profile']['get']>>['setup'];
     while (offset !== undefined) {
       const page = await services.profile.get({ offset });
-      setup = page.setup;
       for (const f of page.facts) {
         facts.push({
           id: f.id,
@@ -85,8 +83,7 @@ export function createYou(services: PodServices, dataDir: string) {
       }
       offset = page.nextOffset;
     }
-    const { complete, findingTopics, toReview, noTopics } = setup;
-    return { facts, setup: { complete, findingTopics, toReview, noTopics } };
+    return { facts };
   }
 
   const reads: Record<string, () => Promise<unknown>> = {

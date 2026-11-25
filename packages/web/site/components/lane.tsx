@@ -1,9 +1,10 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
-import { Headline, Meta } from '@/components/story-card';
-import { byLevel, LEVEL_LABEL, type FeedStory, type FeedSummary } from '@/lib/feed';
+import { Headline } from '@/components/headline';
+import { Meta } from '@/components/story-card';
+import { byLevel, LEVEL_LABEL, type FeedStory, type FeedSummary, type Level as LevelName } from '@/lib/feed';
 import { plural } from '@/lib/news';
 import { cn } from '@/lib/utils';
 
@@ -27,17 +28,32 @@ function CountBar({ matched, picked, leftOut }: { matched: number; picked: numbe
   );
 }
 
-function Level({ level }: { level?: string }) {
-  if (level !== 'emergency' && level !== 'high') return null;
+function Level({ level }: { level: LevelName }) {
   return (
     <span
       className={cn(
-        'self-start rounded-full border px-2 py-px text-[11px] font-medium',
-        level === 'emergency' ? 'border-red-500/60 text-red-700 dark:text-red-400' : 'border-primary/60 text-accent-foreground',
+        'rounded-full border px-2 py-px text-[11px] font-medium',
+        level === 'emergency' ? 'border-red-500/60 text-red-700 dark:text-red-400' : level === 'high' ? 'border-primary/60 text-accent-foreground' : 'text-muted-foreground',
       )}
     >
       {LEVEL_LABEL[level]}
     </span>
+  );
+}
+
+/** Why Mera picked or left out a story, as the phone's note box: the level and an AI-generated mark on top, the reason under them. Left out is quieter so picks stand out. */
+function Reason({ verdict, quiet }: { verdict: NonNullable<FeedStory['verdict']>; quiet?: boolean }) {
+  return (
+    <div className={cn('flex flex-col gap-1.5 rounded-[8px] px-2.5 py-2', quiet ? 'bg-note/60' : 'bg-note')}>
+      <div className="flex min-h-5 items-center justify-between gap-2">
+        {verdict.level ? <Level level={verdict.level} /> : <span />}
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Sparkles aria-hidden className="size-3" />
+          AI-generated
+        </span>
+      </div>
+      <p className={cn('leading-snug text-pretty', quiet ? 'text-[12.5px] text-muted-foreground' : 'text-[13px] text-foreground/85')}>{verdict.reason}</p>
+    </div>
   );
 }
 
@@ -62,10 +78,7 @@ function Card({ s, image }: { s: FeedStory; image: boolean }) {
       <Meta report={s} />
       <Headline report={s} size="card" />
       {picked ? (
-        <>
-          <p className="text-[13px] leading-snug text-pretty text-foreground/75">{s.verdict!.reason}</p>
-          <Level level={s.verdict!.level} />
-        </>
+        <Reason verdict={s.verdict!} />
       ) : (
         <p className="text-[12px] text-muted-foreground">Not judged yet</p>
       )}
@@ -83,7 +96,9 @@ function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count
         <li key={s.id} className="flex flex-col gap-0.5">
           <Meta report={s} />
           <Headline report={s} size="row" />
-          <p className="text-[12.5px] leading-snug text-pretty text-muted-foreground">{s.verdict!.reason}</p>
+          <div className="pt-1.5">
+            <Reason verdict={s.verdict!} quiet />
+          </div>
         </li>
       ))}
       {stories.length < count && <li className="text-[12px] text-muted-foreground">The rest load as you scroll this lane.</li>}

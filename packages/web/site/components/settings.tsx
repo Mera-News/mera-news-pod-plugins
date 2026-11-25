@@ -2,10 +2,14 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Pills } from '@/components/phone/ui';
 import { Command } from '@/components/phones';
 import { ApiError, onPhone, useApi, usePost, type Status } from '@/components/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { currentAppearance, setAppearance, type Appearance } from '@/lib/appearance';
+import { usePhone } from '@/lib/use-phone';
 
 const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError('Mera News could not answer.', 'Try again in a minute.'));
 
@@ -321,6 +325,39 @@ export function AiServiceSection({ status, onSaved }: { status: Status; onSaved:
         <Button variant="outline" className="self-start" onClick={() => setOpen(true)}>
           {status.ai || after ? 'Change AI service' : 'Add an AI service'}
         </Button>
+      )}
+    </Section>
+  );
+}
+
+const APPEARANCE: { value: Appearance; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** Light, dark or the device's own setting, kept in this browser only. */
+export function AppearanceSection() {
+  const phone = usePhone();
+  const [value, setValue] = useState<Appearance>(currentAppearance);
+  const choose = (a: Appearance) => {
+    setAppearance(a);
+    setValue(a);
+  };
+  return (
+    <Section id="appearance" title="Appearance" lead="Match your device, or always use light or dark. This browser remembers your choice.">
+      {phone ? (
+        <div>
+          <Pills label="Appearance" pills={APPEARANCE} value={value} onChange={choose} />
+        </div>
+      ) : (
+        <ToggleGroup aria-label="Appearance" value={[value]} onValueChange={(v: unknown[]) => typeof v[0] === 'string' && choose(v[0] as Appearance)}>
+          {APPEARANCE.map((a) => (
+            <ToggleGroupItem key={a.value} value={a.value}>
+              {a.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       )}
     </Section>
   );

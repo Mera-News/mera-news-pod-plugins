@@ -36,3 +36,23 @@ export function age(iso: string, now = Date.now()): string {
 export const languageLabel = (code: string) => (code && code !== 'und' ? code.split('-')[0].toUpperCase() : '');
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en')} ${n === 1 ? one : many}`;
+
+const names = (() => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' });
+  } catch {
+    return null;
+  }
+})();
+
+/** A language code as its English name: nl is Dutch. Unknown codes show nothing. */
+export function languageName(code: string): string {
+  if (!code || code === 'und') return '';
+  const base = code.split('-')[0];
+  try {
+    const n = names?.of(base);
+    return n && n !== base ? n : base.toUpperCase();
+  } catch {
+    return base.toUpperCase();
+  }
+}

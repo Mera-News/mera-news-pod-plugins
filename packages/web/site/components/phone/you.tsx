@@ -4,9 +4,9 @@ import { ChevronDown, MapPin, Settings, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Panel, PhoneHeader, Pills } from '@/components/phone/ui';
 import { PhonesSection } from '@/components/phones';
-import { AddFact, FactBoard, SetupPanel, statusLine, type Fact, type Setup } from '@/components/profile';
+import { AddFactNote, FactBoard, reviewDue, statusLine, type Fact } from '@/components/profile';
 import { onPhone, useApi, type ApiError, type Status } from '@/components/session';
-import { AiServiceSection, DigestSection, KeepRunningSection, PodSection } from '@/components/settings';
+import { AiServiceSection, AppearanceSection, DigestSection, KeepRunningSection, PodSection } from '@/components/settings';
 import { Button } from '@/components/ui/button';
 import { plural } from '@/lib/news';
 import { cn } from '@/lib/utils';
@@ -14,13 +14,12 @@ import { cn } from '@/lib/utils';
 type Tab = 'profile' | 'settings';
 
 /** Links into the settings (#ai from the Feed) open the Settings pill. */
-const SETTINGS = ['#settings', '#ai', '#digest', '#pod', '#keep-running', '#phones'];
+const SETTINGS = ['#settings', '#ai', '#digest', '#pod', '#appearance', '#keep-running', '#phones'];
 const tabOf = (): Tab => (SETTINGS.includes(location.hash) ? 'settings' : 'profile');
 
 function FactRow({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boolean; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
-  const fresh = fact.topics.some((t) => !t.reviewed);
-  const toReview = fact.topics.length > 0 && fact.needsReview && (!fact.reviewed || fresh);
+  const toReview = reviewDue(fact);
   return (
     <li className="border-t first:border-t-0">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left">
@@ -82,8 +81,8 @@ function PlacesCard() {
   );
 }
 
-/** You on a phone, as in the app: Profile (facts and their topics, adding one) and Settings (digest, AI service, Mera News, phones). */
-export function PhoneYou({ status, profile, error, reload }: { status: Status; profile: { facts: Fact[]; setup: Setup } | null; error: ApiError | null; reload: () => void }) {
+/** You on a phone, as in the app: Profile (facts and their topics, and how to add one) and Settings (digest, AI service, Mera News, phones). */
+export function PhoneYou({ status, profile, error, reload }: { status: Status; profile: { facts: Fact[] } | null; error: ApiError | null; reload: () => void }) {
   const [tab, setTab] = useState<Tab>(tabOf);
   const hasAi = !!status.ai;
 
@@ -122,7 +121,6 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
           <p className="px-1 text-[14px] text-pretty text-muted-foreground">
             What Mera News knows about you. It stays on {onPhone() ? 'your computer' : 'this computer'}, and Mera Labs keeps no copy.
           </p>
-          {profile && <SetupPanel setup={profile.setup} hasAi={hasAi} className="mx-0 rounded-[20px] p-4" />}
           {error && (
             <Panel role="alert" className="flex flex-col items-start gap-3 p-4">
               <p>
@@ -154,7 +152,7 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
           </Panel>
           <PlacesCard />
           <Panel className="p-4">
-            <AddFact hasAi={hasAi} onSaved={reload} className="max-w-none px-0" />
+            <AddFactNote className="text-[15px]" />
           </Panel>
         </div>
       ) : (
@@ -167,6 +165,9 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
           </Panel>
           <Panel className="p-4">
             <PodSection status={status} />
+          </Panel>
+          <Panel className="p-4">
+            <AppearanceSection />
           </Panel>
           {!onPhone() && (
             <Panel className="p-4">
