@@ -1,7 +1,7 @@
 {
   "name": "mera-news",
   "displayName": "Mera News",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests. Needs a key from Mera Labs.",
   "author": {
     "name": "Mera Labs B.V.",
@@ -40,7 +40,7 @@
     "web": {
       "type": "boolean",
       "title": "Also run the Mera News website on this computer",
-      "description": "Shows your news, top stories and profile in your browser. Only this computer can open it.",
+      "description": "Shows your news, top stories and profile in your browser, on this computer, and on your phone if you connect it.",
       "default": true,
       "required": false
     }

@@ -6,11 +6,27 @@ Plugins run inside the pod process with the pod's access to your profile, so onl
 
 This project is in development.
 
+## Mera News in your AI app
+
+[`plugins/mera-news`](plugins/mera-news) is Mera News for AI apps: it starts a pod while the app is
+open and adds the MCP tools and the website. Install steps for each app are in its README.
+
+| Status | Apps |
+|---|---|
+| Tested by Mera Labs | Claude Desktop (Chat tab), Claude Code |
+| Not supported | ChatGPT: it needs a public HTTPS connector that signs in with OAuth, and the pod runs on your computer with a token |
+| Built, not tested by Mera Labs | Grok Build, Codex, OpenClaw. Reports are welcome as issues. |
+
+Other MCP clients can use the stdio bridge or Streamable HTTP with the token, see [`mcp`](packages/mcp).
+To run everything yourself, the data server and the pod, see the pod's
+[self-hosting guide](https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-hosting.md).
+
 ## Packages
 
 - [`mcp`](packages/mcp): an MCP server, so an AI app can set up your profile and ask for new picks. Setup is in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/main/docs/clients.md).
 - [`sync`](packages/sync): pairs the Mera News app with your pod. Not available yet: the app cannot pair with a pod.
-- [`web`](packages/web): the Mera News website, served by your pod on this computer only. It opens from a one-time link.
+- [`web`](packages/web): the Mera News website, served by your pod on `127.0.0.1` and reached from a phone through an HTTPS tunnel. It opens from a one-time link.
+- [`bundle`](packages/bundle): builds the files in `plugins/mera-news/server/` and the `mera-news.mcpb` extension.
 - [`starter`](packages/starter): a local page and three JSON routes for your picks. Copy it to start your own plugin; the pod's [plugin guide](https://github.com/Mera-News/mera-news-pod/blob/main/docs/plugins.md) explains what a plugin gets.
 
 To build and test them: `npm install`, then `npm run build`, `npm run typecheck` and `npm test`.

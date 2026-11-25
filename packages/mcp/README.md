@@ -31,7 +31,7 @@ Each pick links to an article on its publisher's site. The server tells the AI a
 
 ## Connect an MCP client
 
-Build the package (`npm install` at the root of mera-news-pod-plugins), then name it in the pod's `pod.json` and restart the pod:
+Build the package (`npm install`, then `npm run build`, at the root of mera-news-pod-plugins), then name it in the pod's `pod.json` and restart the pod:
 
 ```json
 "plugins": [
@@ -41,7 +41,7 @@ Build the package (`npm install` at the root of mera-news-pod-plugins), then nam
 
 It listens on `http://127.0.0.1:8787/mcp`. Settings in its `config`: `port` (default 8787), `host` (default `127.0.0.1`), `publicHost` for a name reached through a tunnel or reverse proxy, and `capabilityUrl` (off by default).
 
-A client that speaks MCP over HTTP connects to that address with the header `Authorization: Bearer <token>`. A client that only starts local servers uses the stdio bridge: `node build/bin/cli.js bridge --url http://127.0.0.1:8787/mcp`, with `--home <pod home>` when the pod does not use the default home. Setups for Claude Code, Claude Desktop and claude.ai are in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/main/docs/clients.md).
+A client that speaks MCP over HTTP connects to that address with the header `Authorization: Bearer <token>`. A client that only starts local servers uses the stdio bridge: `node build/bin/cli.js bridge --url http://127.0.0.1:8787/mcp`, with `--home <pod home>` when the pod does not use the default home. Setups for Claude Code, Claude Desktop and claude.ai are in the pod's [connecting a client](https://github.com/Mera-News/mera-news-pod/blob/main/docs/clients.md). The easiest way into Claude Desktop and Claude Code is the Mera News plugin in [`plugins/mera-news`](../../plugins/mera-news). ChatGPT is not supported: it needs a public HTTPS connector that signs in with OAuth, and this server takes a bearer token.
 
 ## The token
 
