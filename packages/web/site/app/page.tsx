@@ -24,7 +24,7 @@ export default function FeedPage() {
 function DesktopFeed() {
   const [show, setShow] = useState<Show>('all');
   const [q, setQ] = useState('');
-  const { ready, facts, ai, summary, stories, next, state, error, load, sentinel } = useFeed(q);
+  const { ready, facts, ai, summary, stories, next, state, error, load } = useFeed(q);
   const lanes = useRef<HTMLDivElement>(null);
 
   const shown = useMemo(() => (q ? stories.filter((s) => matches(s, q)) : stories), [stories, q]);
@@ -57,8 +57,13 @@ function DesktopFeed() {
   const n = (x: number) => x.toLocaleString('en');
   const loadingMore = state === 'loading' && stories.length > 0;
 
+  const more = () => {
+    if (state === 'more' && !q) void load(next);
+  };
+
   return (
-    <>
+    // The page itself never scrolls: the lanes do, each on its own.
+    <div className="flex h-dvh min-h-0 flex-col">
       <TopBar end={<SearchField placeholder="Search your news" value={q} onSearch={setQ} />}>
         <h1 className="sr-only">Your news</h1>
         <ToggleGroup aria-label="Show" value={[show]} onValueChange={(v: unknown[]) => typeof v[0] === 'string' && setShow(v[0] as Show)}>
@@ -97,7 +102,7 @@ function DesktopFeed() {
       </TopBar>
 
       {summary && summary.articles > 0 && (
-        <div className="flex flex-col gap-1.5 px-7 pt-5">
+        <div className="flex flex-none flex-col gap-1.5 px-7 pt-5">
           <p className="text-pretty text-muted-foreground tabular-nums">
             <span className="font-semibold text-foreground">{n(summary.articles)}</span> {summary.articles === 1 ? 'article' : 'articles'} matched your{' '}
             {plural(summary.topics.length, 'topic')} in the last {summary.windowHours} hours: <span className="font-semibold text-foreground">{n(summary.stories)}</span>{' '}
@@ -146,23 +151,28 @@ function DesktopFeed() {
         <div
           ref={lanes}
           aria-busy={state === 'loading'}
-          className="relative flex snap-x scroll-px-7 gap-[18px] overflow-x-auto px-7 pt-5 pb-4 [scrollbar-width:thin] *:snap-start"
+          className="relative flex min-h-0 flex-1 snap-x scroll-px-7 gap-[18px] overflow-x-auto px-7 pt-5 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] *:snap-start"
         >
           {summary
-            ? factList.map((f) => <Lane key={f.id} fact={f} stories={byFact.get(f.id) ?? []} show={show} searching={!!q} />)
+            ? factList.map((f) => <Lane key={f.id} fact={f} stories={byFact.get(f.id) ?? []} show={show} searching={!!q} onNearEnd={more} />)
             : state !== 'error' && Array.from({ length: Math.min(Math.max(facts, 1), LANES_IN_VIEW) }, (_, i) => <LaneSkeleton key={i} />)}
         </div>
       )}
 
-      <div ref={sentinel} aria-hidden className="h-px" />
-      <div className="px-7 pt-2" aria-live="polite">
+      <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-t px-7 py-2.5 text-[13px]" aria-live="polite">
         {loadingMore && <p className="text-muted-foreground">Loading more stories</p>}
+        {/* When every lane fits without scrolling, nothing scrolls to ask for the next page. */}
+        {state === 'more' && !q && (
+          <Button variant="outline" size="sm" onClick={more}>
+            Load more stories
+          </Button>
+        )}
         {q && state === 'end' && <p className="text-muted-foreground">{shown.length ? `${plural(shown.length, 'story', 'stories')} match “${q}”.` : `No story in your news matches “${q}”.`}</p>}
         {!q && state === 'end' && stories.length > 0 && (
           <p className="text-muted-foreground">{`That is every story that matched your facts, ${plural(stories.length, 'story', 'stories')}.`}</p>
         )}
+        <PublisherLine className="ml-auto mt-0 max-w-[70ch] p-0" />
       </div>
-      <PublisherLine />
-    </>
+    </div>
   );
 }

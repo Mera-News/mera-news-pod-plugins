@@ -86,7 +86,7 @@ function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count
           <p className="text-[12.5px] leading-snug text-pretty text-muted-foreground">{s.verdict!.reason}</p>
         </li>
       ))}
-      {stories.length < count && <li className="text-[12px] text-muted-foreground">The rest load as you scroll.</li>}
+      {stories.length < count && <li className="text-[12px] text-muted-foreground">The rest load as you scroll this lane.</li>}
     </ul>
   );
   if (count === 0) return null;
@@ -109,15 +109,15 @@ function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count
 }
 
 /** One fact's lane: its name and numbers, the count bar, the picks, what is not judged yet, and what was left out. */
-export function Lane({ fact, stories, show, searching }: { fact: FeedSummary['facts'][number]; stories: FeedStory[]; show: Show; searching: boolean }) {
+export function Lane({ fact, stories, show, searching, onNearEnd }: { fact: FeedSummary['facts'][number]; stories: FeedStory[]; show: Show; searching: boolean; onNearEnd?: () => void }) {
   const picks = stories.filter((s) => s.verdict?.verdict === 'picked').sort(byLevel);
   const open = stories.filter((s) => !s.verdict);
   const left = stories.filter((s) => s.verdict?.verdict === 'left_out');
   const cards = show === 'all' ? [...picks, ...open] : show === 'picked' ? picks : [];
   const headingId = useId();
   return (
-    <section id={`lane-${fact.id}`} aria-labelledby={headingId} className="flex w-[262px] flex-none flex-col gap-2.5">
-      <div className="flex flex-col gap-1.5">
+    <section id={`lane-${fact.id}`} aria-labelledby={headingId} className="flex min-h-0 w-[262px] flex-none flex-col gap-2.5">
+      <div className="flex flex-none flex-col gap-1.5">
         <h2 id={headingId} tabIndex={-1} className="line-clamp-2 font-semibold tracking-[-0.01em] text-balance outline-offset-4">
           {fact.statement}
         </h2>
@@ -126,6 +126,15 @@ export function Lane({ fact, stories, show, searching }: { fact: FeedSummary['fa
         </p>
         <CountBar matched={fact.matched} picked={fact.picked} leftOut={fact.leftOut} />
       </div>
+      {/* Each lane scrolls on its own under its header; nearing its end asks for the next page. */}
+      <div
+        tabIndex={-1}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (onNearEnd && el.scrollTop + el.clientHeight > el.scrollHeight - 600) onNearEnd();
+        }}
+        className="-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-4 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]"
+      >
       {cards.map((s, i) => (
         <Card key={s.id} s={s} image={i === 0} />
       ))}
@@ -134,6 +143,7 @@ export function Lane({ fact, stories, show, searching }: { fact: FeedSummary['fa
       )}
       {show !== 'picked' && <LeftOut stories={left} count={show === 'left-out' || searching ? left.length : fact.leftOut} open={show === 'left-out'} />}
       {show === 'left-out' && left.length === 0 && <p className="py-2 text-[13px] text-muted-foreground">{searching ? 'Nothing here matches your search.' : 'Nothing left out for this fact.'}</p>}
+      </div>
     </section>
   );
 }
