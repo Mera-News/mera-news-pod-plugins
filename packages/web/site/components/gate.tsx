@@ -42,7 +42,7 @@ export function Gate({ children }: { children: ReactNode }) {
     case 'ended':
       return (
         <Empty title="This page needs a new link">
-          <p>Mera News restarted, or this page was left open unused for a long time. {ASK}</p>
+          <p>This page was signed out, left unused for 12 hours, or opened in too many other tabs. {ASK}</p>
         </Empty>
       );
     case 'offline':

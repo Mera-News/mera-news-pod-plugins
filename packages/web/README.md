@@ -27,7 +27,9 @@ The site opens from a link that works once, for 10 minutes, in one browser tab:
   calls the `open_news_site` tool for the link.
 - With a pod you run yourself, run `mera-news-pod-web link --home <your pod folder>`.
 
-A new tab needs a new link, and a restart of the pod ends every open tab's session.
+A new tab needs a new link. An open tab stays signed in when the pod restarts, until it goes 12 hours
+unused. To sign out every tab, use Sign out on the You page, or stop the pod and delete
+`sessions.json` from the web plugin's data folder.
 
 ## In pod.json
 

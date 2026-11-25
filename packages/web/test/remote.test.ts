@@ -187,6 +187,7 @@ test('only this computer sets the public address, adds a phone or keeps Mera New
     assert.equal((await phone('/api/remote/', { cookie, body: { publicHost: 'evil.example' } })).status, 403);
     assert.equal((await phone('/api/keep-running/', { cookie })).status, 403, 'a phone cannot see or change keep running');
     assert.equal((await phone('/api/keep-running/', { cookie, body: { on: true } })).status, 403);
+    assert.equal((await phone('/api/sign-out/', { cookie, body: {} })).status, 403, 'a phone cannot sign out the computer');
     assert.equal((await local('/api/keep-running/')).body.available, process.platform === 'darwin' ? 'not_bundled' : 'not_mac', 'outside the bundle it is not offered');
     assert.equal((await phone('/api/session/', { body: { code: 'x' } })).status, 403, 'the one-time link is for this computer');
     const onComputer = await local('/api/pair/', { code: 'AAAAAAAAAA' });

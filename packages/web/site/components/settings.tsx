@@ -488,3 +488,32 @@ function KeepRunning() {
     </Section>
   );
 }
+
+/** Open tabs outlive a restart, so this is the way to sign every one out, this tab too. Not on a phone: a phone is removed under Phones. */
+export const SignOutSection = () => (onPhone() ? null : <SignOut />);
+
+function SignOut() {
+  const post = usePost();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const signOut = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await post('/api/sign-out/', {});
+      // The pod no longer knows this tab: reloading shows the page that asks for a new link.
+      location.reload();
+    } catch (e) {
+      setError(asError(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <Section id="sign-out" title="Sign out" lead="Tabs stay signed in when Mera News restarts. Sign out every tab on this computer, this one too. To open Mera News again, ask your assistant.">
+      <Button variant="outline" className="self-start" disabled={busy} onClick={() => void signOut()}>
+        {busy ? 'Signing out' : 'Sign out every tab'}
+      </Button>
+      <Problem error={error} />
+    </Section>
+  );
+}

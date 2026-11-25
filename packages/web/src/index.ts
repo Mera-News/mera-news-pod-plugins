@@ -3,13 +3,13 @@
 // forwarder on this computer, on the public address, once paired (see remote.ts). Nothing here may
 // stop the pod: the mcp tools run in the same process, so a failure is logged and the site answers 503.
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugin-api';
 import { hostAllowed, originAllowed } from './guard';
-import { ADDRESS_FILE, checkCode, LINK_KEY_FILE } from './link';
+import { ADDRESS_FILE, checkCode, LINK_KEY_FILE, readPrivate } from './link';
 import { feed, FEED_PAGE } from './feed';
 import { createCountries, NewsError, search, storyReports, topStories } from './news';
 import { loadSite, type SiteFile } from './site';
@@ -25,6 +25,10 @@ const DEFAULT_PORT = 8790;
 const MAX_BODY = 64 * 1024;
 export const MAX_SESSIONS = 20;
 export const SESSION_IDLE_MS = 12 * 3600_000;
+/** Session digests to last use, so an open tab stays signed in when the pod restarts (an update does). */
+export const SESSIONS_FILE = 'sessions.json';
+/** How stale a saved last use may get: a crash loses at most this much of a session's idle time. */
+const SAVE_EVERY_MS = 60_000;
 
 const COMMON = {
   'x-content-type-options': 'nosniff',
@@ -40,9 +44,16 @@ const digest = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function writePrivate(file: string, text: string) {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  rmSync(file, { force: true }); // never write through a link someone left in its place
-  writeFileSync(file, text, { mode: 0o600, flag: 'wx' });
-  chmodSync(file, 0o600);
+  // A new file renamed into place: never written through a link left there, and a failed write leaves the old file whole.
+  const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, file);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
 }
 
 /** Runs a cleanup that must never stop the pod. */
@@ -87,6 +98,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   const configured = valid ? raw : DEFAULT_PORT;
   const addressFile = path.join(ctx.dataDir, ADDRESS_FILE);
   const keyFile = path.join(ctx.dataDir, LINK_KEY_FILE);
+  const sessionsFile = path.join(ctx.dataDir, SESSIONS_FILE);
 
   let server: http.Server | undefined;
   let port = configured;
@@ -96,6 +108,30 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   const sessions = new Map<string, number>();
   /** Spent code ids to their expiry. */
   const spent = new Map<string, number>();
+  let savedAt = 0;
+
+  // Only digests are written, never a session itself; a file that cannot be read starts with none.
+  function loadSessions() {
+    sessions.clear();
+    let saved: unknown;
+    try {
+      saved = JSON.parse(readPrivate(sessionsFile));
+    } catch {
+      return;
+    }
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return;
+    const now = Date.now();
+    const live = Object.entries(saved as Record<string, unknown>)
+      .filter((e): e is [string, number] => /^[0-9a-f]{64}$/.test(e[0]) && Number.isFinite(e[1]) && now - (e[1] as number) <= SESSION_IDLE_MS)
+      .sort((a, b) => a[1] - b[1])
+      .slice(-MAX_SESSIONS);
+    for (const [id, last] of live) sessions.set(id, Math.min(last, now));
+  }
+
+  function saveSessions() {
+    savedAt = Date.now();
+    quietly(() => writePrivate(sessionsFile, `${JSON.stringify(Object.fromEntries(sessions))}\n`));
+  }
 
   const send = (res: http.ServerResponse, status: number, headers: Record<string, string> = {}, body?: Buffer | string) =>
     void res.writeHead(status, { ...COMMON, ...headers }).end(body);
@@ -115,6 +151,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     sessions.set(digest(session), now);
     // The cap keeps the newest: a link opened in one more tab ends the tab least recently used.
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
+    saveSessions();
     return session;
   }
 
@@ -127,6 +164,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     sessions.delete(id);
     if (Date.now() - last > SESSION_IDLE_MS) return false;
     sessions.set(id, Date.now());
+    if (Date.now() - savedAt > SAVE_EVERY_MS) saveSessions();
     return true;
   }
 
@@ -170,7 +208,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     }),
   };
   /** Only the computer sets the public address and adds a phone; a phone could otherwise keep itself in. */
-  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/pair/stop/', '/api/keep-running/']);
+  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/pair/stop/', '/api/keep-running/', '/api/sign-out/']);
 
   function phoneAccess() {
     let r: Remote;
@@ -211,6 +249,13 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       const r = await (body.on ? keepRunning.turnOn() : keepRunning.turnOff());
       ctx.log.info(body.on ? 'Mera News now keeps running on its own.' : 'Mera News no longer keeps running on its own.');
       return r;
+    },
+    // A restart keeps open tabs signed in, so this is how every tab on this computer is signed out, this one too.
+    async '/api/sign-out/'() {
+      sessions.clear();
+      saveSessions();
+      ctx.log.info('Every website tab on this computer was signed out.');
+      return { signedOut: true };
     },
     async '/api/devices/remove/'(body) {
       if (typeof body.id !== 'string' || !/^[0-9a-f]{16}$/.test(body.id)) throw new NewsError('bad_input', 'This phone could not be found.', 'Reload the page to see the phones as they are now.');
@@ -337,7 +382,8 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
 
   return {
     async start() {
-      sessions.clear();
+      // Codes die with the old key below; sessions already open carry on.
+      loadSessions();
       spent.clear();
       key = '';
       files = undefined;
@@ -387,6 +433,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     },
     async stop() {
       quietly(() => rmSync(addressFile, { force: true }));
+      saveSessions();
       sessions.clear();
       const s = server;
       server = undefined;

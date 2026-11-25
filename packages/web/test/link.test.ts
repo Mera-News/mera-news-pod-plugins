@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { mock, test } from 'node:test';
 import { MAX_SESSIONS, SESSION_IDLE_MS } from '../src';
@@ -33,7 +33,7 @@ test('a link opens one session, which reads the status; the code then works no m
   assert.throws(() => siteLink(r.dataDir), /not running/);
 });
 
-test('expired, foreign, malformed and pre-restart codes are refused, and a restart ends every session', async () => {
+test('expired, foreign, malformed and pre-restart codes are refused, and an open session outlives a restart', async () => {
   const r = await run();
   try {
     assert.equal((await r.session(mintCode(key(r.dataDir), Date.now() - LINK_TTL_MS - 1))).status, 401, 'expired');
@@ -45,10 +45,15 @@ test('expired, foreign, malformed and pre-restart codes are refused, and a resta
     }
     const before = mintCode(key(r.dataDir));
     const { session } = JSON.parse((await r.session(mintCode(key(r.dataDir)))).body);
+    const file = path.join(r.dataDir, 'sessions.json');
+    assert.equal(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).length, 1, 'a new session is saved at once, before any stop');
     await r.plugin.stop();
     await r.plugin.start();
     assert.equal((await r.session(before)).status, 401, 'a code from before the restart');
-    assert.equal((await r.request({ path: '/api/status/', headers: { authorization: `Bearer ${session}` } })).status, 401, 'a session from before the restart');
+    assert.equal((await r.request({ path: '/api/status/', headers: { authorization: `Bearer ${session}` } })).status, 200, 'a session from before the restart');
+    const stat = lstatSync(file);
+    assert.ok(stat.isFile() && (stat.mode & 0o077) === 0, 'sessions.json is a plain file only its owner reads');
+    assert.ok(!readFileSync(file, 'utf8').includes(session), 'only a digest of the session is written');
     assert.equal((await r.session(codeOf(siteLink(r.dataDir)))).status, 200);
   } finally {
     await r.stop();
@@ -82,6 +87,12 @@ test('a session left unused ends', async () => {
     assert.equal(await status(), 200, 'use keeps it alive');
     mock.timers.tick(SESSION_IDLE_MS + 1);
     assert.equal(await status(), 401);
+    // Saved, then left unused past the limit while the pod was stopped: the restart does not bring it back.
+    const { session: later } = JSON.parse((await r.session(codeOf(siteLink(r.dataDir)))).body);
+    await r.plugin.stop();
+    mock.timers.tick(SESSION_IDLE_MS + 1);
+    await r.plugin.start();
+    assert.equal((await r.request({ path: '/api/status/', headers: { authorization: `Bearer ${later}` } })).status, 401, 'idle past the limit across a restart');
   } finally {
     mock.timers.reset();
     await r.stop();
@@ -111,4 +122,37 @@ test('nothing secret or typed reaches the log', async () => {
     await r.stop();
   }
   for (const line of r.logs) for (const secret of [...said, 'Utrecht']) assert.ok(!line.includes(secret), line);
+});
+
+test('a broken or foreign sessions file starts with no sessions, and the site still opens', async () => {
+  const r = await run();
+  try {
+    const { session } = JSON.parse((await r.session(codeOf(siteLink(r.dataDir)))).body);
+    await r.plugin.stop();
+    writeFileSync(path.join(r.dataDir, 'sessions.json'), '{not json', { mode: 0o600 });
+    await r.plugin.start();
+    assert.equal((await r.request({ path: '/api/status/', headers: { authorization: `Bearer ${session}` } })).status, 401);
+    assert.equal((await r.session(codeOf(siteLink(r.dataDir)))).status, 200);
+  } finally {
+    await r.stop();
+  }
+});
+
+test('sign out ends every tab on this computer, across a restart too', async () => {
+  const r = await run();
+  try {
+    const open = async () => JSON.parse((await r.session(codeOf(siteLink(r.dataDir)))).body).session as string;
+    const status = (s: string) => r.request({ path: '/api/status/', headers: { authorization: `Bearer ${s}` } }).then((x) => x.status);
+    const [a, b] = [await open(), await open()];
+    const out = await r.request({ method: 'POST', path: '/api/sign-out/', headers: { authorization: `Bearer ${a}`, origin: r.origin(), 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(out.status, 200);
+    assert.equal(await status(a), 401);
+    assert.equal(await status(b), 401);
+    await r.plugin.stop();
+    await r.plugin.start();
+    assert.equal(await status(b), 401, 'a restart does not bring them back');
+    assert.equal(await status(await open()), 200, 'a new link still opens a tab');
+  } finally {
+    await r.stop();
+  }
 });

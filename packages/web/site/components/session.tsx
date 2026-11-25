@@ -27,7 +27,7 @@ export type Connection =
   | { kind: 'pair-refused'; error: string }
   | { kind: 'ready'; status: Status };
 
-// Per tab: a link opens one tab, and the pod forgets every session when it restarts.
+// Per tab: a link opens one tab. The pod keeps its session across restarts until 12 hours unused, 20 newer tabs, or Sign out.
 const KEY = 'mera-news-session';
 
 const stored = {

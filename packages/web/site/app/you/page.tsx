@@ -6,7 +6,7 @@ import { AddFact, FactBoard, SetupPanel, type Fact, type Setup } from '@/compone
 import { ApiError, useApi, useConnection, type Status } from '@/components/session';
 import { PhonesSection } from '@/components/phones';
 import { PhoneYou } from '@/components/phone/you';
-import { AiServiceSection, DigestSection, KeepRunningSection, PodSection } from '@/components/settings';
+import { AiServiceSection, DigestSection, KeepRunningSection, PodSection, SignOutSection } from '@/components/settings';
 import { TopBar } from '@/components/top-bar';
 import { Button } from '@/components/ui/button';
 import { usePhone } from '@/lib/use-phone';
@@ -99,6 +99,7 @@ function You({ initial }: { initial: Status }) {
         <PodSection status={status} />
         <KeepRunningSection />
         <PhonesSection />
+        <SignOutSection />
       </div>
     </>
   );
