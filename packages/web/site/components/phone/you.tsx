@@ -6,7 +6,7 @@ import { Panel, PhoneHeader, Pills } from '@/components/phone/ui';
 import { PhonesSection } from '@/components/phones';
 import { AddFact, FactBoard, SetupPanel, statusLine, type Fact, type Setup } from '@/components/profile';
 import { onPhone, type ApiError, type Status } from '@/components/session';
-import { AiServiceSection, DigestSection, PodSection } from '@/components/settings';
+import { AiServiceSection, DigestSection, KeepRunningSection, PodSection } from '@/components/settings';
 import { Button } from '@/components/ui/button';
 import { plural } from '@/lib/news';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 type Tab = 'profile' | 'settings';
 
 /** Links into the settings (#ai from the Feed) open the Settings pill. */
-const SETTINGS = ['#settings', '#ai', '#digest', '#pod', '#phones'];
+const SETTINGS = ['#settings', '#ai', '#digest', '#pod', '#keep-running', '#phones'];
 const tabOf = (): Tab => (SETTINGS.includes(location.hash) ? 'settings' : 'profile');
 
 function FactRow({ fact, hasAi, onChanged }: { fact: Fact; hasAi: boolean; onChanged: () => void }) {
@@ -122,6 +122,11 @@ export function PhoneYou({ status, profile, error, reload }: { status: Status; p
           <Panel className="p-4">
             <PodSection status={status} />
           </Panel>
+          {!onPhone() && (
+            <Panel className="p-4">
+              <KeepRunningSection />
+            </Panel>
+          )}
           <Panel className="p-4">
             <PhonesSection />
           </Panel>

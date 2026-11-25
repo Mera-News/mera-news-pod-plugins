@@ -2,7 +2,7 @@
 
 News picked for what you follow, from thousands of publishers in many languages. What you follow
 stays on your computer, in a Mera News Pod that this plugin starts while your AI app is open and
-stops when it closes. The news comes from Mera News at `api.mera.news`, with a key from Mera Labs:
+stops when it closes, unless you [keep it running](#keep-mera-news-running-macos). The news comes from Mera News at `api.mera.news`, with a key from Mera Labs:
 message Mera on WhatsApp or write to contact@mera.news.
 
 It needs Node.js 22.13 or newer on macOS (Claude Desktop brings its own). Picks made while you are
@@ -70,6 +70,21 @@ the app.
 **What runs:** one process per app session: the pod, its MCP server and the website, on `127.0.0.1` only. Your
 profile and picks are in `~/.mera-news-pod`. If a pod already runs for that folder, the plugin
 connects to it instead of starting another.
+
+## Keep Mera News running (macOS)
+
+Mera News stops when you quit your AI app. To keep it reading the news and answering your phone
+after that, open the website and turn on You > Settings > Keep Mera News running. It needs Node.js
+22.13 or newer on your Mac; if there is none, the page says so and shows how to install it, and
+Mera News installs nothing itself.
+
+It adds a login item, `~/Library/LaunchAgents/news.mera.pod.plist`, that runs this plugin's
+`server/server.cjs serve` on the same `~/.mera-news-pod` folder, with its log in
+`~/.mera-news-pod/logs/pod.log`. Your news key is saved in `~/.mera-news-pod/secrets.json` if it is
+not there yet, because Claude is not there to hand it over. When you next open Claude, the plugin
+connects to that pod instead of starting its own. Turning the setting off removes the login item and
+stops that pod. The Mac must be awake for Mera News to run. Details:
+[keep it running](https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-hosting.md#from-the-mera-news-plugin-on-macos).
 
 Source-available under the PolyForm Shield License 1.0.0, see `LICENSE` at the repo root. The
 `server/` files are built by `packages/bundle`; do not edit them by hand.

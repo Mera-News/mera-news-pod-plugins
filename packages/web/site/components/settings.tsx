@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Command } from '@/components/phones';
 import { ApiError, onPhone, useApi, usePost, type Status } from '@/components/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -316,6 +317,158 @@ export function AiServiceSection({ status, onSaved }: { status: Status; onSaved:
           {status.ai || after ? 'Change AI service' : 'Add an AI service'}
         </Button>
       )}
+    </Section>
+  );
+}
+
+const GUIDE = 'https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-hosting.md#keep-it-running';
+
+interface KeepRunningState {
+  available: 'yes' | 'not_mac' | 'not_bundled' | 'other_agent';
+  on: boolean;
+  node?: { path: string; version: string } | null;
+  oldNode?: string | null;
+  minNode?: string;
+  install?: string | null;
+  download?: string;
+  copiesKey?: boolean;
+  log?: string;
+}
+
+/** Keep the pod going after the AI app quits, through a macOS login item that runs the same Mera News. This computer only. */
+export const KeepRunningSection = () => (onPhone() ? null : <KeepRunning />);
+
+function KeepRunning() {
+  const get = useApi();
+  const post = usePost();
+  const [state, setState] = useState<KeepRunningState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const load = () => get<KeepRunningState>('/api/keep-running/').then(setState, (e) => setError(asError(e)));
+  useEffect(() => void load(), [get]);
+
+  const set = async (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      setState(await post<KeepRunningState>('/api/keep-running/', { on }));
+      setDone(
+        on
+          ? 'Done. Mera News takes over within a minute after you quit your AI app, and starts again when you log in.'
+          : 'Done. If Mera News was running on its own, it stops in a few seconds, and starts again the next time you open your AI app.',
+      );
+    } catch (e) {
+      setError(asError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const title = 'Keep Mera News running';
+  const lead = 'Mera News runs while your AI app is open. Keep it running to have it read the news and answer your phone after you quit the app, while this Mac is awake.';
+  if (!state) {
+    return (
+      <Section id="keep-running" title={title} lead={lead}>
+        {error ? <Problem error={error} /> : <div aria-hidden className="h-9 w-48 animate-pulse rounded-full bg-muted" />}
+      </Section>
+    );
+  }
+  if (state.available === 'not_mac') {
+    return (
+      <Section id="keep-running" title={title} lead="Mera News can keep running on its own on macOS only, for now. On this computer, it runs while your AI app is open.">
+        {null}
+      </Section>
+    );
+  }
+  if (state.available === 'other_agent') {
+    return (
+      <Section
+        id="keep-running"
+        title={title}
+        lead="A login item you set up yourself already starts a Mera News pod on this Mac (news.mera.pod in your LaunchAgents folder). Mera News leaves it as it is."
+      >
+        {null}
+      </Section>
+    );
+  }
+  if (state.available === 'not_bundled') {
+    return (
+      <Section
+        id="keep-running"
+        title={title}
+        lead={
+          <>
+            This pod runs for as long as you keep it running. To start it when you log in, see{' '}
+            <a href={GUIDE} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">
+              Keep it running
+            </a>{' '}
+            in the pod&apos;s self-hosting guide.
+          </>
+        }
+      >
+        {null}
+      </Section>
+    );
+  }
+  if (!state.on && !state.node) {
+    return (
+      <Section id="keep-running" title={title} lead={lead}>
+        <p className="max-w-[60ch] text-pretty">
+          {state.oldNode
+            ? `This needs Node.js ${state.minNode} or newer, and this Mac has Node.js ${state.oldNode}.`
+            : `This needs Node.js ${state.minNode} or newer, and none was found on this Mac.`}{' '}
+          Mera News does not install it for you.
+        </p>
+        {state.install ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-[13px] text-muted-foreground">To install it with Homebrew, run this in Terminal:</p>
+            <Command text={state.install} />
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">
+            Get the macOS installer from{' '}
+            <a href={state.download} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-2">
+              nodejs.org
+            </a>
+            .
+          </p>
+        )}
+        <Button variant="outline" className="self-start" onClick={() => void load()}>
+          Check again
+        </Button>
+        <Problem error={error} />
+      </Section>
+    );
+  }
+  return (
+    <Section id="keep-running" title={title} lead={lead}>
+      {state.on ? (
+        <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-6 gap-y-3">
+          <dt className="text-muted-foreground">Status</dt>
+          <dd>On. Mera News starts when you log in to this Mac.</dd>
+          <dt className="text-muted-foreground">Log</dt>
+          <dd className="min-w-0 text-[13px] break-all">{state.log}</dd>
+        </dl>
+      ) : (
+        state.copiesKey && (
+          <p className="max-w-[60ch] text-[13px] text-muted-foreground">
+            Your news key is saved in secrets.json in the Mera News folder, readable by you only, so Mera News can start without your AI app.
+          </p>
+        )
+      )}
+      <div className="flex flex-col items-start gap-2">
+        <Button variant={state.on ? 'outline' : 'default'} disabled={busy} onClick={() => void set(!state.on)}>
+          {busy ? 'Saving' : state.on ? 'Stop keeping it running' : 'Keep Mera News running'}
+        </Button>
+        <Problem error={error} />
+        {done && (
+          <p role="status" className="max-w-[60ch] text-[13px] text-muted-foreground">
+            {done}
+          </p>
+        )}
+      </div>
     </Section>
   );
 }

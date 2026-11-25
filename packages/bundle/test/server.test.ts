@@ -294,6 +294,45 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.equal(await noPlugin.close(), 0);
   });
 
+  it('serve mode, what keep running starts, runs the pod with no bridge, never writes to stdout, and waits while an app holds the home', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mera-bundle-home-'));
+    const env = { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY };
+    const app = startServer(dir, home, env);
+    await connect(app);
+
+    const serveEnv: NodeJS.ProcessEnv = { ...process.env, MERA_POD_HOME: home, ...env };
+    delete serveEnv.NODE_OPTIONS;
+    const serve = spawn(process.execPath, [path.join(dir, 'server.cjs'), 'serve'], { env: serveEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+    process.on('exit', () => serve.kill('SIGKILL'));
+    let out = '';
+    let err = '';
+    serve.stdout.on('data', (c) => (out += c));
+    serve.stderr.on('data', (c) => (err += c));
+    const exited = new Promise<number | null>((r) => serve.once('exit', (code) => r(code)));
+    const waitFor = async (re: RegExp) => {
+      const end = Date.now() + 40_000;
+      while (!re.test(err) && Date.now() < end) await new Promise((r) => setTimeout(r, 200));
+      return re.test(err);
+    };
+    const waited = await waitFor(/open in an app/);
+    assert.equal(await app.close(), 0);
+    const tookOver = await waitFor(/running on its own/);
+    // An app that opens now only connects to it.
+    const again = startServer(dir, home, env);
+    const tools: string[] = await connect(again).catch(() => []);
+    const bridged = again.stderr();
+    assert.equal(await again.close(), 0);
+    serve.kill('SIGTERM');
+    const code = await exited;
+    // After everything stopped, so a failure leaves nothing running.
+    assert.ok(waited, `serve did not wait for the app: ${err}`);
+    assert.ok(tookOver, `serve did not take over: ${err}`);
+    assert.ok(tools.includes('search_news'), bridged);
+    assert.match(bridged, /already running for this home/);
+    assert.equal(code, 0, err);
+    assert.equal(out, '', 'serve mode writes nothing to stdout');
+  });
+
   it('the plugin folder carries this build', () => {
     // The marketplaces install from git, so the built files are committed; CI rebuilds and compares.
     const fresh = [...['server.cjs', 'mcp-plugin.cjs', 'web-plugin.cjs', 'THIRD-PARTY-NOTICES.txt'], ...files(path.join(dist, 'web')).map((f) => path.relative(dist, f))].sort();

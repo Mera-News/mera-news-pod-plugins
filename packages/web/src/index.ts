@@ -15,6 +15,7 @@ import { createCountries, NewsError, search, storyReports, topStories } from './
 import { loadSite, type SiteFile } from './site';
 import { createYou } from './you';
 import { encode } from 'uqr';
+import { createKeepRunning, systemDeps } from './keep-running';
 import { createRemote, deviceCookie, deviceName, forwarded, parsePublicHost, tailscaleCommand, tokenFromCookie, viaPublic, type Remote } from './remote';
 
 export const podApi = 2 as const;
@@ -139,6 +140,9 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     }
   };
 
+  // The bundle's server.cjs sits beside this file; outside the bundle there is none, and the setting says so.
+  const keepRunning = createKeepRunning(systemDeps(path.resolve(ctx.dataDir, '..', '..', '..'), path.join(__dirname, 'server.cjs')));
+
   const services = (ctx as Extract<PluginContext, { podApi: 2 }>).services;
   const countries = createCountries(services);
   const you = createYou(services, ctx.dataDir);
@@ -159,10 +163,11 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     '/api/search/': (q) => search(services, arg(q, 'q', /^(?=[\s\S]*\S)[\s\S]{1,200}$/).trim()),
     ...you.reads,
     '/api/remote/': async () => phoneAccess(),
+    '/api/keep-running/': () => keepRunning.state(),
     '/api/devices/': async () => ({ devices: remote.devices().map(({ id, name, pairedAt }) => ({ id, name, pairedAt })) }),
   };
   /** Only the computer sets the public address and adds a phone; a phone could otherwise keep itself in. */
-  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/']);
+  const LOCAL_ONLY = new Set(['/api/remote/', '/api/pair/start/', '/api/keep-running/']);
 
   function phoneAccess() {
     let r: Remote;
@@ -190,6 +195,12 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
       const url = `https://${host}/pair/#${code}`;
       // Rows of 1 for dark and 0 for light; the page draws them.
       return { url, expiresAt: new Date(expiresAt).toISOString(), qr: encode(url, { ecc: 'M' }).data.map((row) => row.map((dark) => (dark ? '1' : '0')).join('')) };
+    },
+    async '/api/keep-running/'(body) {
+      if (typeof body.on !== 'boolean') throw new NewsError('bad_input', 'Say whether Mera News keeps running.', 'Reload the page and try again.');
+      const r = await (body.on ? keepRunning.turnOn() : keepRunning.turnOff());
+      ctx.log.info(body.on ? 'Mera News now keeps running on its own.' : 'Mera News no longer keeps running on its own.');
+      return r;
     },
     async '/api/devices/remove/'(body) {
       if (typeof body.id !== 'string' || !/^[0-9a-f]{16}$/.test(body.id)) throw new NewsError('bad_input', 'This phone could not be found.', 'Reload the page to see the phones as they are now.');

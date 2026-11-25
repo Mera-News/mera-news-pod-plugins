@@ -49,7 +49,7 @@ function Section({ title, lead, children }: { title: string; lead: string; child
 }
 
 /** A command to run, with a button that copies it. */
-function Command({ text }: { text: string }) {
+export function Command({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {

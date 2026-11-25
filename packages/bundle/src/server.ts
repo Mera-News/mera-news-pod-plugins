@@ -3,6 +3,7 @@
 // only MCP messages, so every log line goes to standard error, set before the pod loads.
 console.log = console.info = console.debug = console.error;
 
+import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,11 +11,20 @@ import type * as Embed from 'mera-news-pod/embed';
 // The bridge is bundled from source with this file, so the mcp package need not be built first.
 import { runBridge } from '../../mcp/src/bin/bridge';
 import { mcpDataDir, sessionHint } from '../../mcp/src/digest';
+import { createKeepRunning, logFile, systemDeps } from '../../web/src/keep-running';
 import { ensureConfig } from './config';
 
 const START_TIMEOUT_MS = 30_000;
 
 const oneLine = (error: unknown) => String((error as Error)?.message ?? error).split('\n')[0];
+const LOCK_RETRY_MS = 10_000;
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+
+/** An app can hand over an unset setting as quoting debris or a template: treat that as no key, so secrets.json applies. */
+function dropDebrisKey() {
+  const given = process.env.MERA_POD_DATA_API_KEY;
+  if (given !== undefined && (given.trim().length < 16 || /["'\s]|\$\{/.test(given))) delete process.env.MERA_POD_DATA_API_KEY;
+}
 
 async function listening(port: number, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
@@ -31,14 +41,14 @@ async function listening(port: number, ms: number): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
-  // An app can hand over an unset setting as quoting debris or a template: treat that as no key, so secrets.json applies.
-  const given = process.env.MERA_POD_DATA_API_KEY;
-  if (given !== undefined && (given.trim().length < 16 || /["'\s]|\$\{/.test(given))) delete process.env.MERA_POD_DATA_API_KEY;
+  dropDebrisKey();
   // The pod replaces the global fetch with its guard, which refuses loopback; the bridge keeps the real one.
   const direct = globalThis.fetch;
   const pod = require('mera-news-pod/embed') as typeof Embed;
   const home = pod.podHome();
   const port = await ensureConfig(home, __dirname);
+  // "Keep Mera News running" names a server.cjs; an update can remove it, so point the agent here.
+  await createKeepRunning(systemDeps(home, path.join(__dirname, 'server.cjs'))).refresh();
 
   let running: Embed.Pod | undefined;
   try {
@@ -64,6 +74,49 @@ async function main(): Promise<void> {
 }
 
 /**
+ * `server.cjs serve`, what "Keep Mera News running" starts: the pod and its plugins for this home,
+ * with no stdio bridge, until a stop signal. Nothing is written to standard output. While an app
+ * holds the home, it waits and tries again, so it takes over when that app quits.
+ */
+async function serve(): Promise<void> {
+  dropDebrisKey();
+  const pod = require('mera-news-pod/embed') as typeof Embed;
+  const home = pod.podHome();
+  // launchd appends to one log file; start it again once it is large, since nothing else trims it.
+  try {
+    if (fs.statSync(logFile(home)).size > MAX_LOG_BYTES) fs.truncateSync(logFile(home), 0);
+  } catch {
+    // No log yet.
+  }
+  await ensureConfig(home, __dirname);
+  let running: Embed.Pod | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let stopping = false;
+  const stop = async () => {
+    stopping = true;
+    clearTimeout(timer);
+    await running?.stop().catch(() => {});
+    process.exit(0);
+  };
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
+  let said = false;
+  while (!stopping && !running) {
+    try {
+      const cfg = pod.loadConfig(home);
+      for (const line of await pod.probe(cfg)) console.error(line);
+      running = await pod.boot({ home, createServices: pod.createServices, sink: (_level, line) => console.error(line) });
+      console.error('Mera News is running on its own.');
+    } catch (error) {
+      if (!/another pod is running/.test(oneLine(error))) throw error instanceof pod.ConfigError ? new Error(error.message) : error;
+      if (!said) console.error('Mera News is open in an app, so this starts when that app quits.');
+      said = true;
+      await new Promise((r) => (timer = setTimeout(r, LOCK_RETRY_MS)));
+    }
+  }
+}
+
+/**
  * `server.cjs session-hint`, for an app's session start hook: one sentence on standard output, or
  * nothing. It reads two small files the mcp plugin writes and never loads the pod, so it is quick and
  * shows no fact. The home is the pod's own default.
@@ -80,7 +133,7 @@ function printSessionHint(): void {
 // Always run: a desktop app may start this file in an Electron utility process, where require.main is not this module.
 if (process.argv[2] === 'session-hint') printSessionHint();
 else
-  main().catch((error) => {
+  (process.argv[2] === 'serve' ? serve() : main()).catch((error) => {
     console.error(`Mera News could not start: ${oneLine(error)}`);
     process.exit(1);
   });
