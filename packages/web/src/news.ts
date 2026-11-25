@@ -111,6 +111,26 @@ function storyOut(a: ArticleIn, reports: number): Story | null {
   return { ...r, ...(image ? { image } : {}), reports: Math.max(1, Math.floor(reports) || 1) };
 }
 
+/**
+ * The top headlines and a story's reports come without English titles, so those of another
+ * language get theirs by article id. A failure leaves each title in its own language.
+ */
+async function withEnglish<T extends Report>(services: Services, items: T[]): Promise<T[]> {
+  const ids = items.filter((r) => !r.titleEn && !/^en\b/.test(r.language)).map((r) => r.id);
+  if (ids.length === 0) return items;
+  let english = new Map<string, string>();
+  try {
+    const got = await ask<{ articlesForTopicsByIds: { articles: ArticleIn[] } }>(services, 'GetArticlesForTopicsByIds', BY_IDS, { articleIds: ids });
+    english = new Map(got.articlesForTopicsByIds.articles.flatMap((a) => (typeof a._id === 'string' && a.title_en ? [[a._id, text(a.title_en, 500)]] : [])));
+  } catch {
+    return items;
+  }
+  return items.map((r) => {
+    const en = english.get(r.id);
+    return en && en !== r.title ? { ...r, titleEn: en } : r;
+  });
+}
+
 const cursorOf = (p: { endCursor?: string | null; hasNextPage?: boolean } | undefined) => (p?.hasNextPage && p.endCursor ? p.endCursor : null);
 
 /** One page of the most reported stories, for the world (GLOBAL) or one alpha-3 country. */
@@ -120,7 +140,7 @@ export async function topStories(services: Services, country: string, after: str
     await ask<Reply>(services, 'GetTopHeadlinesForCountry', TOP, { countryCode: country === 'GLOBAL' ? null : country, first: STORIES_PER_PAGE, after })
   ).topHeadlinesForCountry;
   return {
-    stories: got.headlines.flatMap((h) => storyOut(h.article, h.clusterSize ?? 1) ?? []),
+    stories: await withEnglish(services, got.headlines.flatMap((h) => storyOut(h.article, h.clusterSize ?? 1) ?? [])),
     nextCursor: cursorOf(got.pageInfo),
   };
 }
@@ -130,7 +150,7 @@ export async function storyReports(services: Services, id: string, after: string
   type Reply = { newsClusterForArticle: { clusterSize?: number | null; articles: { articles: ArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } } | null };
   const got = (await ask<Reply>(services, 'GetNewsClusterForArticle', STORY, { articleId: id, first: REPORTS_PER_PAGE, after })).newsClusterForArticle;
   if (!got) return { reports: [] as Report[], nextCursor: null };
-  return { reports: got.articles.articles.flatMap((a) => reportOut(a) ?? []), nextCursor: cursorOf(got.articles.pageInfo) };
+  return { reports: await withEnglish(services, got.articles.articles.flatMap((a) => reportOut(a) ?? [])), nextCursor: cursorOf(got.articles.pageInfo) };
 }
 
 /**

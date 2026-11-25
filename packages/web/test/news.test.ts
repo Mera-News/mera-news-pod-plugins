@@ -87,7 +87,8 @@ test('top stories: one page for the world or a country, the named fields only, w
     assert.deepEqual(calls[0].variables, { countryCode: null, first: 20, after: null });
     assert.doesNotMatch(calls[0].query, /description/);
     const second = await get('/api/top/?c=NLD&after=b');
-    assert.deepEqual(calls[1].variables, { countryCode: 'NLD', first: 20, after: 'b' });
+    const tops = () => calls.filter((c) => c.operationName === 'GetTopHeadlinesForCountry');
+    assert.deepEqual(tops()[1].variables, { countryCode: 'NLD', first: 20, after: 'b' });
     assert.deepEqual(second.body.stories.map((s: { id: string; reports: number }) => [s.id, s.reports]), [['c', 1]], 'a story of one report counts one');
     assert.equal(second.body.nextCursor, null);
     for (const bad of ['/api/top/?c=nl', '/api/top/?c=NL', '/api/top/?c=GLOBAL&after=a%20b']) {
@@ -95,8 +96,37 @@ test('top stories: one page for the world or a country, the named fields only, w
       assert.equal(res.status, 400, bad);
       assert.equal(res.body.error, 'bad_input');
     }
-    assert.equal(calls.length, 2, 'a bad argument asks nothing');
+    assert.equal(tops().length, 2, 'a bad argument asks nothing');
     assertNoArticleText([first.body, second.body]);
+  });
+});
+
+test('a headline the list sends without an English title gets it by article id; English ones are not asked for', async () => {
+  const { calls, news: n } = news({
+    GetTopHeadlinesForCountry: () => ({
+      data: { topHeadlinesForCountry: { headlines: [headline('fr1', 3, { title_en: null, original_language_code: 'fr' }), headline('en1', 2, { title: 'Plain', title_en: null, original_language_code: 'en' })], pageInfo: { endCursor: null, hasNextPage: false } } },
+    }),
+    GetArticlesForTopicsByIds: (b) => ({ data: { articlesForTopicsByIds: { articles: b.variables.articleIds.map((id: string) => ({ _id: id, title: 'Titre', title_en: 'The English title' })) } } }),
+  });
+  const { r, get } = await signedIn({ news: n });
+  await using(r, async () => {
+    const page = (await get('/api/top/?c=GLOBAL')).body;
+    assert.equal(page.stories[0].titleEn, 'The English title');
+    assert.equal(page.stories[1].titleEn, undefined);
+    const ask = calls.find((c) => c.operationName === 'GetArticlesForTopicsByIds')!;
+    assert.deepEqual(ask.variables.articleIds, ['fr1']);
+  });
+});
+
+test('when the English titles cannot be read, the stories still come in their own language', async () => {
+  const { news: n } = news({
+    GetTopHeadlinesForCountry: () => ({ data: { topHeadlinesForCountry: { headlines: [headline('fr1', 3, { title_en: null, original_language_code: 'fr' })], pageInfo: { endCursor: null, hasNextPage: false } } } }),
+  });
+  const { r, get } = await signedIn({ news: n });
+  await using(r, async () => {
+    const page = (await get('/api/top/?c=GLOBAL')).body;
+    assert.equal(page.stories.length, 1);
+    assert.equal(page.stories[0].titleEn, undefined);
   });
 });
 
