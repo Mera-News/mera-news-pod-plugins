@@ -1,4 +1,4 @@
-import type { Story } from '@/lib/news';
+import type { Story } from './news';
 
 export type Level = 'emergency' | 'high' | 'medium' | 'low';
 

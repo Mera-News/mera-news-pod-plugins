@@ -67,6 +67,13 @@ export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServi
       }),
       judge: async () => ({ saved: [], already: [], refused: [] }),
     },
+    followed: {
+      list: async () => ({ stories: [] }),
+      get: async () => Promise.reject(new Error('not used')),
+      follow: async () => Promise.reject(new Error('not used')),
+      unfollow: async () => ({ removed: true }),
+      removeArticle: async () => ({ removed: true }),
+    },
     model: { chatCompletions: async () => new Response('{}') },
     news: { graphql: async () => ({ data: null }) },
     commands: { run: async () => ({ results: [], snapshot: { schemaVersion: 0, registry: 0, tables: {} } }) },

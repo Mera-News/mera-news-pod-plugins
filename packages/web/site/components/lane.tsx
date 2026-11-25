@@ -4,7 +4,10 @@ import { ChevronDown, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Headline } from '@/components/headline';
 import { Meta } from '@/components/story-card';
-import { byLevel, LEVEL_LABEL, type FeedStory, type FeedSummary, type Level as LevelName } from '@/lib/feed';
+import { Button } from '@/components/ui/button';
+import { detailLink, fromFeed } from '@/lib/detail';
+import { byLevel, LEVEL_LABEL, type FeedStory, type Level as LevelName } from '@/lib/feed';
+import type { Lane as LaneData } from '@/lib/use-feed';
 import { plural } from '@/lib/news';
 import { cn } from '@/lib/utils';
 
@@ -28,7 +31,7 @@ function CountBar({ matched, picked, leftOut }: { matched: number; picked: numbe
   );
 }
 
-function Level({ level }: { level: LevelName }) {
+export function Level({ level }: { level: LevelName }) {
   return (
     <span
       className={cn(
@@ -42,7 +45,7 @@ function Level({ level }: { level: LevelName }) {
 }
 
 /** Why Mera picked or left out a story, as the phone's note box: the level and an AI-generated mark on top, the reason under them. Left out is quieter so picks stand out. */
-function Reason({ verdict, quiet }: { verdict: NonNullable<FeedStory['verdict']>; quiet?: boolean }) {
+export function Reason({ verdict, quiet }: { verdict: { reason: string; level?: LevelName }; quiet?: boolean }) {
   return (
     <div className={cn('flex flex-col gap-1.5 rounded-[8px] px-2.5 py-2', quiet ? 'bg-note/60' : 'bg-note')}>
       <div className="flex min-h-5 items-center justify-between gap-2">
@@ -58,7 +61,7 @@ function Reason({ verdict, quiet }: { verdict: NonNullable<FeedStory['verdict']>
 }
 
 /** A pick, or a story nobody has judged yet: the publisher's image on a lane's first card, where it came from, the headline and why. */
-function Card({ s, image }: { s: FeedStory; image: boolean }) {
+function Card({ s, image, names }: { s: FeedStory; image: boolean; names: Map<string, string> }) {
   const [shown, setShown] = useState(Boolean(s.image));
   const picked = s.verdict?.verdict === 'picked';
   return (
@@ -76,7 +79,7 @@ function Card({ s, image }: { s: FeedStory; image: boolean }) {
         />
       )}
       <Meta report={s} />
-      <Headline report={s} size="card" />
+      <Headline report={s} size="card" opens={detailLink(fromFeed(s, names))} />
       {picked ? (
         <Reason verdict={s.verdict!} />
       ) : (
@@ -87,7 +90,7 @@ function Card({ s, image }: { s: FeedStory; image: boolean }) {
 }
 
 /** Left out, with the reason each one was. Open by default only when that is all the page shows. */
-function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count: number; open: boolean }) {
+function LeftOut({ stories, count, open: always, names }: { stories: FeedStory[]; count: number; open: boolean; names: Map<string, string> }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const list = (
@@ -95,7 +98,7 @@ function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count
       {stories.map((s) => (
         <li key={s.id} className="flex flex-col gap-0.5">
           <Meta report={s} />
-          <Headline report={s} size="row" />
+          <Headline report={s} size="row" opens={detailLink(fromFeed(s, names))} />
           <div className="pt-1.5">
             <Reason verdict={s.verdict!} quiet />
           </div>
@@ -123,8 +126,26 @@ function LeftOut({ stories, count, open: always }: { stories: FeedStory[]; count
   );
 }
 
-/** One fact's lane: its name and numbers, the count bar, the picks, what is not judged yet, and what was left out. */
-export function Lane({ fact, stories, show, searching, onNearEnd }: { fact: FeedSummary['facts'][number]; stories: FeedStory[]; show: Show; searching: boolean; onNearEnd?: () => void }) {
+/** One fact's lane: its name and numbers, the count bar, the picks, what is not judged yet, and what was left out. It loads and pages on its own. */
+export function Lane({
+  lane,
+  stories,
+  show,
+  searching,
+  names,
+  onNearEnd,
+  onRetry,
+}: {
+  lane: LaneData;
+  stories: FeedStory[];
+  show: Show;
+  searching: boolean;
+  /** Each fact's statement by id, for the facts a story's detail says it matched. */
+  names: Map<string, string>;
+  onNearEnd: () => void;
+  onRetry: () => void;
+}) {
+  const fact = lane.counts ?? { ...lane.fact, matched: 0, picked: 0, leftOut: 0 };
   const picks = stories.filter((s) => s.verdict?.verdict === 'picked').sort(byLevel);
   const open = stories.filter((s) => !s.verdict);
   const left = stories.filter((s) => s.verdict?.verdict === 'left_out');
@@ -146,28 +167,66 @@ export function Lane({ fact, stories, show, searching, onNearEnd }: { fact: Feed
         tabIndex={-1}
         onScroll={(e) => {
           const el = e.currentTarget;
-          if (onNearEnd && el.scrollTop + el.clientHeight > el.scrollHeight - 600) onNearEnd();
+          if (el.scrollTop + el.clientHeight > el.scrollHeight - 600) onNearEnd();
         }}
         className="-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-4 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]"
       >
       {cards.map((s, i) => (
-        <Card key={s.id} s={s} image={i === 0} />
+        <Card key={s.id} s={s} image={i === 0} names={names} />
       ))}
       {show !== 'left-out' && cards.length === 0 && (
         <p className="py-2 text-[13px] text-muted-foreground">{searching ? 'Nothing here matches your search.' : show === 'picked' ? 'Nothing picked for this fact yet.' : 'Nothing matched this fact yet.'}</p>
       )}
-      {show !== 'picked' && <LeftOut stories={left} count={show === 'left-out' || searching ? left.length : fact.leftOut} open={show === 'left-out'} />}
-      {show === 'left-out' && left.length === 0 && <p className="py-2 text-[13px] text-muted-foreground">{searching ? 'Nothing here matches your search.' : 'Nothing left out for this fact.'}</p>}
+      {show !== 'picked' && <LeftOut stories={left} count={show === 'left-out' || searching ? left.length : fact.leftOut} open={show === 'left-out'} names={names} />}
+      {show === 'left-out' && left.length === 0 && lane.state === 'end' && (
+        <p className="py-2 text-[13px] text-muted-foreground">{searching ? 'Nothing here matches your search.' : 'Nothing left out for this fact.'}</p>
+      )}
+      {/* A lane that fits without scrolling has nothing to scroll to ask for its next page. */}
+      <div aria-live="polite" className="flex flex-col items-start gap-2 empty:hidden">
+        {lane.state === 'loading' && <p className="text-[12px] text-muted-foreground">Loading more stories</p>}
+        {lane.state === 'more' && !searching && (
+          <Button variant="outline" size="sm" onClick={onNearEnd}>
+            Load more stories
+          </Button>
+        )}
+        {lane.state === 'error' && lane.error && (
+          <div role="alert" className="flex flex-col items-start gap-2 text-[12px]">
+            <p>
+              <span className="font-medium">{lane.error.message}</span> <span className="text-muted-foreground">{lane.error.next}</span>
+            </p>
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          </div>
+        )}
+      </div>
       </div>
     </section>
   );
 }
 
-/** A lane's shape while the first page loads. */
-export function LaneSkeleton() {
+/** A lane whose first page could not load, with a way to ask again. */
+export function LaneError({ lane, onRetry }: { lane: LaneData; onRetry: () => void }) {
   return (
-    <div aria-hidden className="flex w-[262px] flex-none flex-col gap-2.5">
-      <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+    <section aria-label={lane.fact.statement} className="flex w-[262px] flex-none flex-col gap-2.5">
+      <h2 className="line-clamp-2 font-semibold tracking-[-0.01em] text-balance">{lane.fact.statement}</h2>
+      <div role="alert" className="flex flex-col items-start gap-2 rounded-[12px] border border-dashed p-3 text-[13px]">
+        <p>
+          <span className="font-medium">{lane.error?.message}</span> <span className="text-muted-foreground">{lane.error?.next}</span>
+        </p>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** A lane's shape while its first page loads, under the fact's name once it is known. */
+export function LaneSkeleton({ title }: { title?: string }) {
+  return (
+    <div aria-hidden={!title} aria-busy={title ? true : undefined} className="flex w-[262px] flex-none flex-col gap-2.5">
+      {title ? <p className="line-clamp-2 font-semibold tracking-[-0.01em] text-balance">{title}</p> : <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />}
       <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
       <div className="h-1.5 animate-pulse rounded-full bg-muted" />
       {[true, false, false].map((img, i) => (

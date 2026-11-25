@@ -103,3 +103,33 @@ test('an expired page of the Feed says to start again, with the pod\'s own words
     await r.stop();
   }
 });
+
+test('a lane reads its own fact\'s run, still with peek, and a bad fact id asks the pod nothing', async () => {
+  const asked: unknown[] = [];
+  const forProfile: PodServices['stories']['forProfile'] = async (o) => {
+    asked.push(o);
+    if (o?.fact === 'gone') throw Object.assign(new Error('There is no saved fact with that id.'), { code: 'bad_input', next: 'correct it and call again; nothing was saved' });
+    return { run: '0a1b2c3d', summary: SUMMARY, stories: [story('a1')], ...(o?.after ? {} : { nextCursor: '0a1b2c3d.1' }), shownBefore: 0 };
+  };
+  const { r, get } = await signedIn({ forProfile });
+  try {
+    const first = await get('/api/feed/?fact=f1');
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.body.summary.facts, SUMMARY.facts);
+    assert.equal((await get('/api/feed/?fact=f1&after=0a1b2c3d.1')).body.nextCursor, null);
+    assert.equal((await get('/api/feed/?fact=f1&after=0a1b2c3d.0&limit=0')).status, 200);
+    assert.deepEqual(asked, [
+      { fact: 'f1', limit: 30, peek: true },
+      { fact: 'f1', after: '0a1b2c3d.1', limit: 30, peek: true },
+      { fact: 'f1', after: '0a1b2c3d.0', limit: 0, peek: true },
+    ]);
+    for (const bad of ['/api/feed/?fact=', '/api/feed/?fact=a/b', `/api/feed/?fact=${'x'.repeat(101)}`, '/api/feed/?fact=a%20b']) {
+      assert.equal((await get(bad)).status, 400, bad);
+    }
+    assert.equal(asked.length, 3, 'a bad fact id asks the pod nothing');
+    const gone = await get('/api/feed/?fact=gone');
+    assert.deepEqual([gone.status, gone.body.error], [400, 'bad_input']);
+  } finally {
+    await r.stop();
+  }
+});

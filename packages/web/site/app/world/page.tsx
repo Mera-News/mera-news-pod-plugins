@@ -8,8 +8,7 @@ import { PublisherLine, TopBar } from '@/components/top-bar';
 import { SearchField } from '@/components/search-field';
 import { ApiError, useApi } from '@/components/session';
 import { PhoneWorldBar } from '@/components/phone/world';
-import { Panel, StoryRow } from '@/components/phone/ui';
-import { AllReports, StoryCard, StoryCardSkeleton } from '@/components/story-card';
+import { ClusterCard, ClusterSkeleton } from '@/components/story-card';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { plural, type Country, type Story } from '@/lib/news';
@@ -62,7 +61,7 @@ function World() {
           ))}
         </ToggleGroup>
         <label className="relative inline-flex">
-          <span className="sr-only">Another country</span>
+          <span className="sr-only">Choose another country</span>
           <select
             value=""
             disabled={!countries?.all.length}
@@ -70,7 +69,7 @@ function World() {
             className="h-8 cursor-pointer appearance-none rounded-full border border-dashed bg-transparent pr-8 pl-3 text-[13px] text-muted-foreground transition-colors outline-none hover:border-primary/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-50"
           >
             <option value="" disabled>
-              Another country
+              Choose another
             </option>
             {countries?.all.map((x) => (
               <option key={x.code} value={x.code}>
@@ -88,17 +87,14 @@ function World() {
   );
 }
 
+/** One column on a phone and a narrow window, two on a wide one; the lead story spans both. */
 const Grid = ({ children, busy }: { children: ReactNode; busy?: boolean }) => (
-  <div aria-busy={busy} className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-[18px] px-7 max-md:flex max-md:flex-col max-md:gap-3 max-md:px-4">
+  <div aria-busy={busy} className="grid grid-cols-1 items-start gap-[18px] px-7 min-[1100px]:grid-cols-2 max-md:gap-3 max-md:px-4">
     {children}
   </div>
 );
 
-const Skeletons = ({ n, phone }: { n: number; phone: boolean }) =>
-  Array.from({ length: n }, (_, i) => (phone ? <Panel key={i} aria-hidden className="h-[150px] animate-pulse rounded-[18px]" /> : <StoryCardSkeleton key={i} image={i % 3 === 0} />));
-
-/** A story on the phone as the app's list card, with its reports from every publisher under it. */
-const Card = ({ story, phone }: { story: Story; phone: boolean }) => (phone ? <StoryRow story={story} footer={story.reports > 1 && <AllReports story={story} />} /> : <StoryCard story={story} />);
+const Skeletons = ({ n, lead }: { n: number; lead?: boolean }) => Array.from({ length: n }, (_, i) => <ClusterSkeleton key={i} lead={lead && i === 0} />);
 
 /** The phone's quiet line over a list, in place of the desktop's heading and numbers. */
 const PhoneLead = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
@@ -177,8 +173,8 @@ function TopStories({ scope, name, phone }: { scope: string; name: string; phone
       ) : (
         <Heading
           id="top-title"
-          title={`Top stories in ${where}`}
-          lead="The most reported stories of the last 24 hours, most reported first. Open a story's reports to see every publisher that carries it. No AI ranks this page."
+          title="Top stories"
+          lead={`The most reported stories in ${where} over the last 24 hours, most reported first. Full coverage shows every publisher that carries a story. No AI ranks this page.`}
           numbers={stories.length ? [['Stories', `${stories.length.toLocaleString('en')}${more}`], ['Reports', `${reports.toLocaleString('en')}${more}`]] : []}
         />
       )}
@@ -186,16 +182,18 @@ function TopStories({ scope, name, phone }: { scope: string; name: string; phone
         <p className="px-7 py-10 text-muted-foreground max-md:px-5">No top stories in {where} in the last 24 hours.</p>
       ) : (
         <Grid busy={state === 'loading'}>
-          {stories.map((s) => (
-            <Card key={s.id} story={s} phone={phone} />
+          {stories.map((s, i) => (
+            <ClusterCard key={s.id} story={s} lead={i === 0} />
           ))}
-          {state === 'loading' && <Skeletons n={stories.length ? 5 : phone ? 4 : 10} phone={phone} />}
+          {state === 'loading' && <Skeletons n={stories.length ? 4 : phone ? 3 : 5} lead={!stories.length} />}
         </Grid>
       )}
       {state === 'error' && error && <Problem error={error} retry={() => void load(stories.length ? next : null)} />}
       <div ref={sentinel} aria-hidden className="h-px" />
       {state === 'end' && stories.length > 0 && (
-        <p className="px-7 pt-8 text-muted-foreground max-md:px-5 max-md:text-[14px]">That is every top story in {where} from the last 24 hours.</p>
+        <p className="mx-7 mt-8 border-t pt-5 text-muted-foreground tabular-nums max-md:mx-4 max-md:px-1 max-md:text-[14px]">
+          {`That is every top story in ${where} from the last 24 hours, ${plural(stories.length, 'story', 'stories')} in all.`}
+        </p>
       )}
     </section>
   );
@@ -236,7 +234,7 @@ function SearchResults({ q, phone }: { q: string; phone: boolean }) {
         <Problem error={error} retry={load} />
       ) : stories === null ? (
         <Grid busy>
-          <Skeletons n={phone ? 4 : 8} phone={phone} />
+          <Skeletons n={phone ? 3 : 6} />
         </Grid>
       ) : stories.length === 0 ? (
         <div className="flex flex-col items-start gap-3 px-7 py-10 max-md:px-5">
@@ -249,7 +247,7 @@ function SearchResults({ q, phone }: { q: string; phone: boolean }) {
         <>
           <Grid>
             {stories.map((s) => (
-              <Card key={s.id} story={s} phone={phone} />
+              <ClusterCard key={s.id} story={s} />
             ))}
           </Grid>
           <p className="px-7 pt-8 text-muted-foreground max-md:px-5 max-md:text-[14px]">{`That is every match, ${plural(stories.length, 'story', 'stories')}.`}</p>

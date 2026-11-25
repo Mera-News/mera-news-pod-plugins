@@ -153,6 +153,15 @@ export async function storyReports(services: Services, id: string, after: string
   return { reports: await withEnglish(services, got.articles.articles.flatMap((a) => reportOut(a) ?? [])), nextCursor: cursorOf(got.articles.pageInfo) };
 }
 
+/** One article as a story, for an article detail opened from a link: its image and how many reports its story has. */
+export async function article(services: Services, id: string) {
+  const got = await ask<{ articlesForTopicsByIds: { articles: ArticleIn[] } }>(services, 'GetArticlesForTopicsByIds', BY_IDS, { articleIds: [id] });
+  const a = got.articlesForTopicsByIds.articles.find((x) => x._id === id);
+  const story = a && storyOut(a, a.maxClusterSize ?? 1);
+  if (!story) throw new NewsError('not_found', 'This article is no longer in Mera News.', 'Go back to your news; news older than a few days is let go.');
+  return { story };
+}
+
 /**
  * Search all of Mera News by words: the server's best matches, at most 25, and reports of one story
  * shown as one. A server that cannot group leaves each match on its own.

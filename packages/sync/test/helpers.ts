@@ -67,6 +67,13 @@ export function fakeServices(over: Partial<PodServices> = {}): { services: PodSe
     suggestions: { get: async () => ({ state: 'ok', hint: '', nextReadAt: null, picks: [], cursor: 'a.1', more: false }) },
     aiService: { set: async () => ({ set: true }), models: async () => ({ models: [] }), providers: () => [], setReasons: async () => ({ set: true }) },
     stories: { forProfile: async () => Promise.reject(new Error('not used')), judge: async () => ({ saved: [], already: [], refused: [] }) },
+    followed: {
+      list: async () => ({ stories: [] }),
+      get: async () => Promise.reject(new Error('not used')),
+      follow: async () => Promise.reject(new Error('not used')),
+      unfollow: async () => ({ removed: true }),
+      removeArticle: async () => ({ removed: true }),
+    },
     reading: {
       status: async () => status(),
       set: async (c) => (calls.reading.push(c), status({ reading: c.paused ? 'paused' : 'on' })),

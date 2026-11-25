@@ -1,6 +1,6 @@
 'use client';
 
-import { Globe, Newspaper, UserRound } from 'lucide-react';
+import { Globe, Layers, Newspaper, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 export const NAV = [
   { href: '/', label: 'Feed', icon: Newspaper },
   { href: '/world/', label: 'World', icon: Globe },
+  { href: '/following/', label: 'Following', icon: Layers },
   { href: '/you/', label: 'You', icon: UserRound },
 ] as const;
 

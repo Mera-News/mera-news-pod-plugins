@@ -3,7 +3,7 @@
 import { Check, Clock, ExternalLink, Newspaper, Share } from 'lucide-react';
 import { useState, type ComponentType, type HTMLAttributes, type ReactNode } from 'react';
 import { LEVEL_LABEL, type Level } from '@/lib/feed';
-import { Headline } from '@/components/headline';
+import { Headline, type Opens } from '@/components/headline';
 import { age, languageName, type Report, type Story } from '@/lib/news';
 import { cn } from '@/lib/utils';
 
@@ -153,7 +153,7 @@ export function SourceRow({ report }: { report: Report }) {
 }
 
 /** A story as the app's list card: age and language on top, the headline, the publisher, the image at the side. */
-export function StoryRow({ story, children, footer }: { story: Story; children?: ReactNode; footer?: ReactNode }) {
+export function StoryRow({ story, children, footer, opens }: { story: Story; children?: ReactNode; footer?: ReactNode; opens?: Opens }) {
   return (
     <Panel as="article" className="flex flex-col gap-2 rounded-[18px] p-3.5">
       <div className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
@@ -165,7 +165,7 @@ export function StoryRow({ story, children, footer }: { story: Story; children?:
       </div>
       <div className="flex gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <Headline report={story} size="phone-row" />
+          <Headline report={story} size="phone-row" opens={opens} />
           <p className="truncate text-[13px] text-muted-foreground">{story.publisher || 'Unknown publisher'}</p>
         </div>
         <StoryImage src={story.image} className="size-[92px] shrink-0 rounded-[14px]" />

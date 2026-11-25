@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { NAV } from '@/components/rail';
 import { useConnection } from '@/components/session';
 
-/** The phone's floating capsule of tabs, as in the app: Feed, World, You. Shown once the pod has let the phone in. */
+/** The phone's floating capsule of tabs, as in the app: Feed, World, Following, You. Shown once the pod has let the phone in. */
 export function TabBar() {
   const path = usePathname();
   if (useConnection().kind !== 'ready') return null;

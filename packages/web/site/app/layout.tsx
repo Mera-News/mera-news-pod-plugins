@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { ArticleDetail } from '@/components/article-detail';
 import { Gate } from '@/components/gate';
 import { Rail } from '@/components/rail';
 import { SessionProvider } from '@/components/session';
@@ -40,7 +41,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <SessionProvider>
           <Rail />
           <main className="flex min-w-0 flex-1 flex-col max-md:pb-[calc(env(safe-area-inset-bottom)+84px)]">
-            <Gate>{children}</Gate>
+            <Gate>
+              {children}
+              {/* An article's detail opens over any page, named in the address. */}
+              <ArticleDetail />
+            </Gate>
           </main>
           <TabBar />
         </SessionProvider>

@@ -138,7 +138,7 @@ export function PhoneWorldBar({
         </form>
       ) : (
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-[20px] font-bold tracking-[-0.015em]">Top headlines</h1>
+          <h1 className="text-[20px] font-bold tracking-[-0.015em]">Top stories</h1>
           <div className="flex gap-2">
             <button type="button" aria-label="How this list is made" aria-expanded={help} aria-controls="world-help" onClick={() => setHelp(!help)} className={`${ROUND} aria-expanded:border-primary aria-expanded:text-accent-foreground`}>
               <CircleHelp aria-hidden className="size-5" />

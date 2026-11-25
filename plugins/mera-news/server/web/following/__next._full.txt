@@ -1,0 +1,35 @@
+1:"$Sreact.fragment"
+2:"/_next/static/chunks/18k47stnzgosw.js"
+3:"/_next/static/chunks/0q8oyqf0s-72u.js"
+4:"/_next/static/chunks/1_5c76hnfcoua.js"
+5:I[32409,["$2","$3","$4"],"SessionProvider"]
+6:I[61180,["$2","$3","$4"],"Rail"]
+7:I[8231,["$2","$3","$4"],"Gate"]
+8:I[42402,["$2","$3","$4"],"default"]
+9:I[27115,["$2","$3","$4"],"default"]
+a:I[68255,["$2","$3","$4"],""]
+b:I[98138,["$2","$3","$4"],"ArticleDetail"]
+c:I[81379,["$2","$3","$4"],"TabBar"]
+10:I[13914,["$2","$3","$4"],"ClientPageRoot"]
+11:"/_next/static/chunks/3r0-m2p91mv-5.js"
+12:I[32963,["$2","$3","$4","$11"],"default"]
+15:I[98753,["$2","$3","$4"],"OutletBoundary"]
+16:"$Sreact.suspense"
+18:"ViewportBoundary"
+19:I[98753,["$2","$3","$4"],"$18"]
+1b:"MetadataBoundary"
+1c:I[98753,["$2","$3","$4"],"$1b"]
+1e:I[71118,["$2","$3","$4"],"default",1]
+:HL["/_next/static/chunks/0hcpbd34k_x7c.css","style"]
+:HL["/mark.png","image"]
+e:X
+f:[["children",{"s":"__PAGE__","h":512,"d":{"r":["$","$1","c",{"children":[["$","$L10",null,{"Component":"$12","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@13","$@14"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/3r0-m2p91mv-5.js","async":true,"nonce":"$undefined"}]],["$","$L15",null,{"children":["$","$16",null,{"name":"Next.MetadataOutlet","children":"$@17"}]}]]}],"p":false,"v":null}}]]
+d:[["children",{"s":"following","h":512,"d":{"r":["$","$1","c",{"children":[null,["$","$L8",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L9",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":"$undefined","forbidden":"$undefined","unauthorized":"$undefined"}]]}],"p":false,"v":"$e"},"c":"$Qf"}]]
+0:{"P":null,"c":["","following",""],"q":"","i":false,"t":{"t":{"s":"","h":528,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/0hcpbd34k_x7c.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}],["$","script","script-0",{"src":"/_next/static/chunks/18k47stnzgosw.js","async":true,"nonce":"$undefined"}],["$","script","script-1",{"src":"/_next/static/chunks/0q8oyqf0s-72u.js","async":true,"nonce":"$undefined"}],["$","script","script-2",{"src":"/_next/static/chunks/1_5c76hnfcoua.js","async":true,"nonce":"$undefined"}]],["$","html",null,{"lang":"en","suppressHydrationWarning":true,"children":[["$","head",null,{"children":["$","script",null,{"dangerouslySetInnerHTML":{"__html":"try{var t=localStorage.getItem('mera-news-appearance');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}"}}]}],["$","body",null,{"className":"flex min-h-dvh bg-background font-sans text-foreground antialiased","children":["$","$L5",null,{"children":[["$","$L6",null,{}],["$","main",null,{"className":"flex min-w-0 flex-1 flex-col max-md:pb-[calc(env(safe-area-inset-bottom)+84px)]","children":["$","$L7",null,{"children":[["$","$L8",null,{"parallelRouterKey":"children","error":"$undefined","errorStyles":"$undefined","errorScripts":"$undefined","template":["$","$L9",null,{}],"templateStyles":"$undefined","templateScripts":"$undefined","notFound":[["$","div",null,{"className":"flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center md:px-7","children":[["$","img",null,{"src":"/mark.png","alt":"","width":64,"height":64,"className":"mb-3 size-16 rounded-[16px] md:hidden"}],["$","h1",null,{"className":"text-balance text-[17px] font-semibold tracking-[-0.01em] max-md:text-[22px] max-md:font-bold","children":"This page does not exist"}],["$","div",null,{"className":"max-w-[56ch] text-pretty text-muted-foreground max-md:text-[16px]","children":["$","p",null,{"children":["Go back to ",["$","$La",null,{"href":"/","className":"text-accent-foreground underline underline-offset-4","children":"your news"}],"."]}]}]]}],[]],"forbidden":"$undefined","unauthorized":"$undefined"}],["$","$Lb",null,{}]]}]}],["$","$Lc",null,{}]]}]}]]}]]}],"p":false,"v":null},"c":"$Qd"},"h":{"r":["$","$1","h",{"children":[null,["$","$L19",null,{"children":"$L1a"}],["$","$L1c",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$16",null,{"name":"Next.Metadata","children":"$L1d"}]}],null]}],null]}],"p":false,"v":null}},"m":"$undefined","G":["$1e",[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/0hcpbd34k_x7c.css","precedence":"next","crossOrigin":"$undefined","nonce":"$undefined"}]]],"S":true,"r":"$undefined","s":"$undefined","a":"$undefined","l":"$undefined","p":"$undefined","d":"$undefined","b":"web"}
+e:C
+13:{}
+14:"$f:0:1:d:r:props:children:0:props:serverProvidedParams:params"
+1a:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1, viewport-fit=cover"}],["$","meta","2",{"name":"theme-color","content":"#140d10","media":"(prefers-color-scheme: dark) and (max-width: 767.98px)"}],["$","meta","3",{"name":"theme-color","content":"#f7ece6","media":"(prefers-color-scheme: light) and (max-width: 767.98px)"}],["$","meta","4",{"name":"theme-color","content":"#f7f7f7","media":"(prefers-color-scheme: light)"}],["$","meta","5",{"name":"theme-color","content":"#0a0a0a","media":"(prefers-color-scheme: dark)"}],["$","meta","6",{"name":"color-scheme","content":"light dark"}]]
+1f:I[75060,["$2","$3","$4"],"IconMark"]
+17:null
+1d:[["$","title","0",{"children":"Mera News"}],["$","meta","1",{"name":"description","content":"Your news, top stories and your profile, from the Mera News pod on this computer."}],["$","link","2",{"rel":"manifest","href":"/manifest.webmanifest","crossOrigin":"$undefined"}],["$","meta","3",{"name":"referrer","content":"no-referrer"}],["$","meta","4",{"name":"robots","content":"noindex, nofollow"}],["$","meta","5",{"name":"mobile-web-app-capable","content":"yes"}],["$","meta","6",{"name":"apple-mobile-web-app-title","content":"Mera News"}],["$","meta","7",{"name":"apple-mobile-web-app-status-bar-style","content":"black-translucent"}],["$","link","8",{"rel":"icon","href":"/mark.png"}],["$","link","9",{"rel":"apple-touch-icon","href":"/apple-touch-icon.png"}],["$","$L1f","10",{}]]

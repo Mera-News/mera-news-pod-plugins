@@ -11,7 +11,8 @@ import type { PluginContext, PluginModule, PodPlugin } from 'mera-news-pod/plugi
 import { hostAllowed, originAllowed } from './guard';
 import { ADDRESS_FILE, checkCode, LINK_KEY_FILE, readPrivate } from './link';
 import { feed, FEED_PAGE } from './feed';
-import { createCountries, NewsError, search, storyReports, topStories } from './news';
+import { createFollowed } from './followed';
+import { article, createCountries, NewsError, search, storyReports, topStories } from './news';
 import { loadSite, type SiteFile } from './site';
 import { createYou } from './you';
 import { encode } from 'uqr';
@@ -184,6 +185,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   const services = (ctx as Extract<PluginContext, { podApi: 2 }>).services;
   const countries = createCountries(services);
   const you = createYou(services, ctx.dataDir);
+  const followed = createFollowed(services);
   // Each argument is checked here; a bad one answers the pod's error shape with what to do.
   const arg = (q: URLSearchParams, key: string, pattern: RegExp, fallback?: string) => {
     const v = q.get(key) ?? fallback;
@@ -197,10 +199,18 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
     '/api/countries/': () => countries(),
     '/api/top/': (q) => topStories(services, arg(q, 'c', /^(GLOBAL|[A-Z]{3})$/, 'GLOBAL'), cursor(q)),
     '/api/story/': (q) => storyReports(services, arg(q, 'id', /^[\w.:-]{1,100}$/), cursor(q)),
-    // `after` is a run and a position (the pod's own form); `limit=0` asks for the run's numbers only.
-    '/api/feed/': (q) => feed(services, q.has('after') ? arg(q, 'after', /^[0-9a-f]{8}\.\d{1,6}$/) : null, Number(arg(q, 'limit', /^(0|30)$/, String(FEED_PAGE)))),
+    '/api/article/': (q) => article(services, arg(q, 'id', /^[\w.:-]{1,100}$/)),
+    // `after` is a run and a position (the pod's own form); `limit=0` asks for the run's numbers only; `fact` reads one fact's lane.
+    '/api/feed/': (q) =>
+      feed(
+        services,
+        q.has('after') ? arg(q, 'after', /^[0-9a-f]{8}\.\d{1,6}$/) : null,
+        Number(arg(q, 'limit', /^(0|30)$/, String(FEED_PAGE))),
+        q.has('fact') ? arg(q, 'fact', /^[\w.:-]{1,100}$/) : null,
+      ),
     '/api/search/': (q) => search(services, arg(q, 'q', /^(?=[\s\S]*\S)[\s\S]{1,200}$/).trim()),
     ...you.reads,
+    ...followed.reads,
     '/api/remote/': async () => phoneAccess(),
     '/api/keep-running/': () => keepRunning.state(),
     '/api/devices/': async (_q, phone) => ({
@@ -222,6 +232,7 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
 
   const writes: Record<string, (body: Record<string, unknown>) => Promise<unknown>> = {
     ...you.writes,
+    ...followed.writes,
     async '/api/remote/'(body) {
       const given = body.publicHost;
       const host = given === null || given === '' ? undefined : typeof given === 'string' ? parsePublicHost(given) : null;

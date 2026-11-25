@@ -21,9 +21,12 @@ const storyOut = (s: ProfileStory) => ({
   ...(s.verdict ? { verdict: { verdict: s.verdict.verdict, reason: s.verdict.reason, ...(s.verdict.level ? { level: s.verdict.level } : {}), by: s.verdict.by } } : {}),
 });
 
-/** One page of the Feed, or with `limit` 0 only the summary of the run `after` names. */
-export async function feed(services: Pick<PodServices, 'stories'>, after: string | null, limit: number) {
-  const page = await services.stories.forProfile({ ...(after ? { after } : {}), limit, peek: true });
+/**
+ * One page of the Feed, or with `limit` 0 only the summary of the run `after` names. With `fact`, the
+ * run holds only that fact's stories, so each lane of the site loads and pages on its own.
+ */
+export async function feed(services: Pick<PodServices, 'stories'>, after: string | null, limit: number, fact: string | null = null) {
+  const page = await services.stories.forProfile({ ...(fact ? { fact } : {}), ...(after ? { after } : {}), limit, peek: true });
   const s = page.summary;
   return {
     run: page.run,

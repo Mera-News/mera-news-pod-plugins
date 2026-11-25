@@ -2,8 +2,8 @@
 
 import { ChevronDown } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
-import { Lane, LaneSkeleton, type Show } from '@/components/lane';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Lane, LaneError, LaneSkeleton, type Show } from '@/components/lane';
 import { PhoneFeed } from '@/components/phone/feed';
 import { SearchField } from '@/components/search-field';
 import { Empty, PublisherLine, TopBar } from '@/components/top-bar';
@@ -24,15 +24,11 @@ export default function FeedPage() {
 function DesktopFeed() {
   const [show, setShow] = useState<Show>('all');
   const [q, setQ] = useState('');
-  const { ready, facts, ai, summary, stories, next, state, error, load } = useFeed(q);
+  const { ready, facts, ai, lanes: laneList, factsError, retryFacts, summary, partial, stories, load, more } = useFeed(q);
   const lanes = useRef<HTMLDivElement>(null);
 
-  const shown = useMemo(() => (q ? stories.filter((s) => matches(s, q)) : stories), [stories, q]);
-  const byFact = useMemo(() => {
-    const m = new Map<string, FeedStory[]>();
-    for (const s of shown) for (const f of s.facts) m.set(f, [...(m.get(f) ?? []), s]);
-    return m;
-  }, [shown]);
+  const filter = useCallback((list: FeedStory[]) => (q ? list.filter((s) => matches(s, q)) : list), [q]);
+  const shown = useMemo(() => filter(stories), [filter, stories]);
 
   if (ready && facts === 0) {
     return (
@@ -53,13 +49,14 @@ function DesktopFeed() {
     );
   }
 
-  const factList = summary?.facts ?? [];
+  const factList = laneList.map((l) => l.fact);
+  const names = new Map(factList.map((f) => [f.id, f.statement]));
   const n = (x: number) => x.toLocaleString('en');
-  const loadingMore = state === 'loading' && stories.length > 0;
-
-  const more = () => {
-    if (state === 'more' && !q) void load(next);
-  };
+  const allEnded = laneList.length > 0 && laneList.every((l) => l.state === 'end');
+  // A lane in error is settled for search: it will not load more until the person asks again.
+  const settled = laneList.length > 0 && laneList.every((l) => l.state === 'end' || l.state === 'error');
+  const searching = q && !settled;
+  const atLeast = partial ? '+' : '';
 
   return (
     // The page itself never scrolls: the lanes do, each on its own.
@@ -67,9 +64,9 @@ function DesktopFeed() {
       <TopBar end={<SearchField placeholder="Search your news" value={q} onSearch={setQ} />}>
         <h1 className="sr-only">Your news</h1>
         <ToggleGroup aria-label="Show" value={[show]} onValueChange={(v: unknown[]) => typeof v[0] === 'string' && setShow(v[0] as Show)}>
-          <ToggleGroupItem value="all">All {summary ? n(summary.stories) : ''}</ToggleGroupItem>
-          <ToggleGroupItem value="picked">Picked {summary ? n(summary.picked) : ''}</ToggleGroupItem>
-          <ToggleGroupItem value="left-out">Left out {summary ? n(summary.leftOut) : ''}</ToggleGroupItem>
+          <ToggleGroupItem value="all">All {summary ? n(summary.stories) + atLeast : ''}</ToggleGroupItem>
+          <ToggleGroupItem value="picked">Picked {summary ? n(summary.picked) + atLeast : ''}</ToggleGroupItem>
+          <ToggleGroupItem value="left-out">Left out {summary ? n(summary.leftOut) + atLeast : ''}</ToggleGroupItem>
         </ToggleGroup>
         <span className="inline-flex h-8 items-center rounded-full border px-3 text-[13px] text-muted-foreground">Last {summary?.windowHours ?? 48} hours</span>
         {factList.length > LANES_IN_VIEW && (
@@ -104,16 +101,22 @@ function DesktopFeed() {
       {summary && summary.articles > 0 && (
         <div className="flex flex-none flex-col gap-1.5 px-7 pt-5">
           <p className="text-pretty text-muted-foreground tabular-nums">
+            {partial && 'At least '}
             <span className="font-semibold text-foreground">{n(summary.articles)}</span> {summary.articles === 1 ? 'article' : 'articles'} matched your{' '}
-            {plural(summary.topics.length, 'topic')} in the last {summary.windowHours} hours: <span className="font-semibold text-foreground">{n(summary.stories)}</span>{' '}
+            {/* Topics are counted only once every lane has answered. */}
+            {partial ? 'topics' : plural(summary.topics.length, 'topic')} in the last {summary.windowHours} hours: {partial && 'at least '}<span className="font-semibold text-foreground">{n(summary.stories)}</span>{' '}
             {summary.stories === 1 ? 'story' : 'stories'} once {n(summary.merged)} {summary.merged === 1 ? 'duplicate was' : 'duplicates were'} merged, from{' '}
-            {state === 'end' ? '' : 'at least '}
+            {laneList.length === 1 && allEnded ? '' : 'at least '}
             {plural(summary.publishers, 'publisher')} in {plural(summary.languages, 'language')}.
+            {laneList.length > 1 && ' A story that matched two facts counts for each.'}
             {!summary.complete && ' Mera News found more than one read can hold, so some matches are not here.'}
           </p>
           {!ai && summary.unjudged > 0 && (
             <p className="text-pretty">
-              <span className="font-medium">{plural(summary.unjudged, 'story', 'stories')} not judged yet.</span>{' '}
+              <span className="font-medium">
+                {partial && 'At least '}
+                {plural(summary.unjudged, 'story', 'stories')} not judged yet.
+              </span>{' '}
               <span className="text-muted-foreground">
                 Ask your assistant to pick, or{' '}
                 <Link href="/you/#ai" className="text-accent-foreground underline decoration-primary/60 underline-offset-[3px] hover:decoration-primary">
@@ -126,18 +129,18 @@ function DesktopFeed() {
         </div>
       )}
 
-      {state === 'error' && error && (
+      {factsError && (
         <div role="alert" className="flex flex-col items-start gap-3 px-7 py-8">
           <p>
-            <span className="font-medium">{error.message}</span> <span className="text-muted-foreground">{error.next}</span>
+            <span className="font-medium">{factsError.message}</span> <span className="text-muted-foreground">{factsError.next}</span>
           </p>
-          <Button variant="outline" size="sm" onClick={() => void load(stories.length ? next : null)}>
+          <Button variant="outline" size="sm" onClick={() => void retryFacts()}>
             Try again
           </Button>
         </div>
       )}
 
-      {summary && summary.stories === 0 && state === 'end' ? (
+      {summary && summary.stories === 0 && allEnded ? (
         <Empty title="Nothing matched your topics yet">
           <p>
             Mera News looked for news on your {plural(summary.topics.length, 'topic')} from the last {summary.windowHours} hours. Check again later, or add more facts on{' '}
@@ -150,25 +153,27 @@ function DesktopFeed() {
       ) : (
         <div
           ref={lanes}
-          aria-busy={state === 'loading'}
+          aria-busy={partial}
           className="relative flex min-h-0 flex-1 snap-x scroll-px-7 gap-[18px] overflow-x-auto px-7 pt-5 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] *:snap-start"
         >
-          {summary
-            ? factList.map((f) => <Lane key={f.id} fact={f} stories={byFact.get(f.id) ?? []} show={show} searching={!!q} onNearEnd={more} />)
-            : state !== 'error' && Array.from({ length: Math.min(Math.max(facts, 1), LANES_IN_VIEW) }, (_, i) => <LaneSkeleton key={i} />)}
+          {laneList.length
+            ? laneList.map((l) =>
+                l.summary ? (
+                  <Lane key={l.fact.id} lane={l} stories={filter(l.stories)} show={show} searching={!!q} names={names} onNearEnd={() => more(l.fact.id)} onRetry={() => void load(l.fact, l.next)} />
+                ) : l.state === 'error' && l.error ? (
+                  <LaneError key={l.fact.id} lane={l} onRetry={() => void load(l.fact, null)} />
+                ) : (
+                  <LaneSkeleton key={l.fact.id} title={l.fact.statement} />
+                ),
+              )
+            : !factsError && Array.from({ length: Math.min(Math.max(facts, 1), LANES_IN_VIEW) }, (_, i) => <LaneSkeleton key={i} />)}
         </div>
       )}
 
       <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-t px-7 py-2.5 text-[13px]" aria-live="polite">
-        {loadingMore && <p className="text-muted-foreground">Loading more stories</p>}
-        {/* When every lane fits without scrolling, nothing scrolls to ask for the next page. */}
-        {state === 'more' && !q && (
-          <Button variant="outline" size="sm" onClick={more}>
-            Load more stories
-          </Button>
-        )}
-        {q && state === 'end' && <p className="text-muted-foreground">{shown.length ? `${plural(shown.length, 'story', 'stories')} match “${q}”.` : `No story in your news matches “${q}”.`}</p>}
-        {!q && state === 'end' && stories.length > 0 && (
+        {searching && <p className="text-muted-foreground">Searching every story in your lanes</p>}
+        {q && settled && <p className="text-muted-foreground">{shown.length ? `${plural(shown.length, 'story', 'stories')} match “${q}”.` : `No story in your news matches “${q}”.`}</p>}
+        {!q && allEnded && stories.length > 0 && (
           <p className="text-muted-foreground">{`That is every story that matched your facts, ${plural(stories.length, 'story', 'stories')}.`}</p>
         )}
         <PublisherLine className="ml-auto mt-0 max-w-[70ch] p-0" />
