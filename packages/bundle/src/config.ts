@@ -26,11 +26,26 @@ function freePort(): Promise<number> {
 const isMcp = (p: PluginEntry) => /(^|[\\/])(mcp|mera-news-pod-mcp|mcp-plugin\.cjs)[\\/]?$/.test(p.package);
 const isWeb = (p: PluginEntry) => /(^|[\\/])(web|mera-news-pod-web|web-plugin\.cjs)[\\/]?$/.test(p.package);
 
+/**
+ * The app's setting "News server address", when it holds a web address. An app hands an unset
+ * setting over empty or as leftover template text, and that means "no change".
+ */
+export function newsServerSetting(env: NodeJS.ProcessEnv): string | undefined {
+  const given = (env.MERA_NEWS_DATA_SERVER_URL ?? '').trim();
+  try {
+    const url = new URL(given);
+    return /^https?:$/.test(url.protocol) && !url.username && !url.password ? given.replace(/\/+$/, '') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The app's setting "Also run the Mera News website on this computer": on unless it says no. */
 export const webWanted = (env: NodeJS.ProcessEnv) => !/^(false|0|no|off)$/i.test((env.MERA_POD_WEB ?? '').trim());
 
 /**
- * Writes pod.json on the first run: Mera News' news server (or MERA_NEWS_DATA_SERVER_URL), no AI
+ * Writes pod.json on the first run: Mera News' news server (or the address in MERA_NEWS_DATA_SERVER_URL,
+ * which later runs also apply when it changes), no AI
  * service, the bundled mcp plugin on a free loopback port and, unless MERA_POD_WEB turns it off, the
  * bundled website after it. The key is never written: the app hands it over as MERA_POD_DATA_API_KEY,
  * or the person puts it in secrets.json. Later runs keep the file, move the bundled plugins' paths
@@ -52,7 +67,7 @@ export async function ensureConfig(home: string, serverDir: string, env: NodeJS.
     const locale = new Intl.Locale(Intl.DateTimeFormat().resolvedOptions().locale);
     const mcp = await entry(mcpFile);
     const config = {
-      dataServer: { url: env.MERA_NEWS_DATA_SERVER_URL || MERA_NEWS_DATA_SERVER },
+      dataServer: { url: newsServerSetting(env) ?? MERA_NEWS_DATA_SERVER },
       reading: { everyMinutes: 15 },
       language: locale.language,
       ...(locale.region ? { region: locale.region } : {}),
@@ -63,9 +78,13 @@ export async function ensureConfig(home: string, serverDir: string, env: NodeJS.
     if (!fs.existsSync(secrets)) fs.writeFileSync(secrets, '{}\n', { mode: 0o600 });
     return mcp.config!.port!;
   }
-  const config = JSON.parse(fs.readFileSync(file, 'utf8')) as { plugins?: PluginEntry[] };
+  const config = JSON.parse(fs.readFileSync(file, 'utf8')) as { plugins?: PluginEntry[]; dataServer?: { url?: string } };
   const plugins = Array.isArray(config.plugins) ? config.plugins : [];
   const before = JSON.stringify(plugins);
+  // An address in the app's setting wins; with none, the file's news server stays as it is.
+  const news = newsServerSetting(env);
+  const newsChanged = news !== undefined && config.dataServer?.url !== news;
+  if (newsChanged) config.dataServer = { ...config.dataServer, url: news };
   let mcp = plugins.find(isMcp);
   if (!mcp) {
     mcp = await entry(mcpFile);
@@ -83,7 +102,7 @@ export async function ensureConfig(home: string, serverDir: string, env: NodeJS.
     if (web && plugins.indexOf(web) < plugins.indexOf(mcp)) plugins.splice(plugins.indexOf(web), 1);
     if (!plugins.includes(ours)) plugins.splice(plugins.indexOf(mcp) + 1, 0, ours);
   }
-  if (JSON.stringify(plugins) !== before) {
+  if (newsChanged || JSON.stringify(plugins) !== before) {
     config.plugins = plugins;
     fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   }

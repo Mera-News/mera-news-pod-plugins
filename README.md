@@ -9,7 +9,9 @@ This project is in development.
 ## Mera News in your AI app
 
 [`plugins/mera-news`](plugins/mera-news) is Mera News for AI apps: it starts a pod while the app is
-open and adds the MCP tools and the website. Install steps for each app are in its README.
+open and adds the MCP tools and the website. The news comes from Mera News, with a key from Mera
+Labs, or from a news server you run, with no key from Mera Labs: put its address in the "News server
+address" setting. Install steps for each app are in its README.
 
 | Status | Apps |
 |---|---|
@@ -18,7 +20,9 @@ open and adds the MCP tools and the website. Install steps for each app are in i
 | Built, not tested by Mera Labs | Grok Build, Codex, OpenClaw. Reports are welcome as issues. |
 
 Other MCP clients can use the stdio bridge or Streamable HTTP with the token, see [`mcp`](packages/mcp).
-To run everything yourself, the data server and the pod, see the pod's
+To run your own news server, see the data server's
+[self-hosting guide](https://github.com/Mera-News/mera-news-data-server/blob/main/docs/self-host.md); to run
+the pod by hand too, see the pod's
 [self-hosting guide](https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-hosting.md).
 
 ## Packages

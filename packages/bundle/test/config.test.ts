@@ -90,3 +90,22 @@ test('serve mode, which has no app settings, never adds the website the person t
   await ensureConfig(h, updated, {}, { addWeb: false });
   assert.deepEqual(plugins(h), [path.join(updated, 'mcp-plugin.cjs'), path.join(updated, 'web-plugin.cjs')]);
 });
+
+test('the news server setting: an address is used on the first run and on later ones; empty or leftover text changes nothing', async () => {
+  const dir = serverDir();
+  const h = home();
+  const url = () => JSON.parse(readFileSync(path.join(h, 'pod.json'), 'utf8')).dataServer.url as string;
+  await ensureConfig(h, dir, { MERA_NEWS_DATA_SERVER_URL: '' });
+  assert.equal(url(), 'https://api.mera.news', 'empty means Mera News');
+  await ensureConfig(h, dir, { MERA_NEWS_DATA_SERVER_URL: ' http://127.0.0.1:3002 ' });
+  assert.equal(url(), 'http://127.0.0.1:3002', 'a later run switches to the person\'s own server');
+  for (const left of ['', '${user_config.data_server_url}', `'"'"'`, 'not a web address', 'ftp://x.example']) {
+    await ensureConfig(h, dir, { MERA_NEWS_DATA_SERVER_URL: left });
+    assert.equal(url(), 'http://127.0.0.1:3002', JSON.stringify(left));
+  }
+  await ensureConfig(h, dir, { MERA_NEWS_DATA_SERVER_URL: 'https://api.mera.news' });
+  assert.equal(url(), 'https://api.mera.news', 'Mera News again, by its address');
+  const fresh = home();
+  await ensureConfig(fresh, dir, { MERA_NEWS_DATA_SERVER_URL: '${user_config.data_server_url}' });
+  assert.equal(JSON.parse(readFileSync(path.join(fresh, 'pod.json'), 'utf8')).dataServer.url, 'https://api.mera.news', 'leftover text on the first run means Mera News');
+});

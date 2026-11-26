@@ -1,7 +1,7 @@
 {
   "name": "mera-news",
   "displayName": "Mera News",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests. Needs a key from Mera Labs.",
   "author": {
     "name": "Mera Labs B.V.",
@@ -32,10 +32,17 @@
   "userConfig": {
     "api_key": {
       "type": "string",
-      "title": "Mera News key",
-      "description": "Ask Mera Labs for a key: message Mera on WhatsApp or write to contact@mera.news.",
+      "title": "News key",
+      "description": "For Mera News: the key from Mera Labs (message Mera on WhatsApp or write to contact@mera.news). For your own news server: the key you set on it, or nothing if it runs open.",
       "sensitive": true,
-      "required": true
+      "required": false
+    },
+    "data_server_url": {
+      "type": "string",
+      "title": "News server address",
+      "description": "Leave empty to use Mera News. To use a news server you run yourself, give its address, such as http://127.0.0.1:3002. Mera Labs then needs no key from you.",
+      "default": "",
+      "required": false
     },
     "web": {
       "type": "boolean",
@@ -53,7 +60,8 @@
       ],
       "env": {
         "MERA_POD_DATA_API_KEY": "${user_config.api_key}",
-        "MERA_POD_WEB": "${user_config.web}"
+        "MERA_POD_WEB": "${user_config.web}",
+        "MERA_NEWS_DATA_SERVER_URL": "${user_config.data_server_url}"
       }
     }
   }

@@ -2,24 +2,42 @@
 
 News picked for what you follow, from thousands of publishers in many languages. What you follow
 stays on your computer, in a Mera News Pod that this plugin starts while your AI app is open and
-stops when it closes, unless you [keep it running](#keep-mera-news-running-macos). The news comes from Mera News at `api.mera.news`, with a key from Mera Labs:
-message Mera on WhatsApp or write to contact@mera.news. Never paste the key into a chat.
+stops when it closes, unless you [keep it running](#keep-mera-news-running-macos).
+
+First choose where the news comes from:
+
+- **From Mera News** (`api.mera.news`), the quickest: ask Mera Labs for a key (message Mera on
+  WhatsApp or write to contact@mera.news), install the plugin and paste the key into "News key".
+  Never paste the key into a chat.
+- **From your own news server:** set up the
+  [data server](https://github.com/Mera-News/mera-news-data-server/blob/main/docs/self-host.md), then
+  install the plugin and put the server's address in "News server address", and its key in "News
+  key" if you set one. No key from Mera Labs.
+
+Both end in the same place: the Mera News website and the tools in your AI app.
 
 The Claude Desktop extension runs on macOS and brings its own Node.js; the other apps need Node.js 22.13 or newer. Picks made while
 you are away need an AI service, added on the website's You page (see
 [your AI service](#your-ai-service)); without one, your assistant picks for you when you ask.
 
-| App | Status | Install | Key |
+| App | Status | Install | Settings |
 |---|---|---|---|
-| Claude Desktop | Tested (Chat tab) | Download `mera-news.mcpb` from the [latest release](https://github.com/Mera-News/mera-news-pod-plugins/releases/latest) and open it. Claude Desktop shows an install dialog. | asked at install |
-| Claude Code | Tested | `/plugin marketplace add Mera-News/mera-news-pod-plugins`, then `/plugin install mera-news@mera-news` | asked at install |
+| Claude Desktop | Tested (Chat tab) | Download `mera-news.mcpb` from the [latest release](https://github.com/Mera-News/mera-news-pod-plugins/releases/latest) and open it. Claude Desktop shows an install dialog. | the settings below |
+| Claude Code | Tested | `/plugin marketplace add Mera-News/mera-news-pod-plugins`, then `/plugin install mera-news@mera-news` | the settings below |
 | ChatGPT | Not supported | | |
 | Grok Build | Built, not tested by Mera Labs | `grok plugin install mera-news` once listed, or add this repo as a marketplace | `secrets.json` |
 | Codex | Built, not tested by Mera Labs | add this repo as a marketplace (`.agents/plugins/marketplace.json`) | `secrets.json` |
 | OpenClaw | Built, not tested by Mera Labs | install the Claude plugin from this repo's marketplace | `secrets.json` |
 
-The Claude Desktop install dialog asks for the Mera News key and whether to also run the Mera News
-website on this computer (on by default).
+The Claude Desktop install dialog, and Claude Code when it installs the plugin, ask for three settings:
+
+- **News key** (optional): for Mera News, the key from Mera Labs. For your own news server, the key
+  you set on it (`MERA_NEWS_API_KEY`), or nothing if it needs none, as the one-computer setup does.
+  A server setup in open mode, with no key, refuses search, so give it a key for the pod.
+- **News server address** (optional): empty uses Mera News. An address, such as
+  `http://127.0.0.1:3002`, uses a news server you run. A later change applies the next time the app
+  starts.
+- **Also run the Mera News website on this computer**: on by default.
 
 ChatGPT connects only to a public HTTPS server that signs in with OAuth. Your pod runs on your
 computer and takes a token, so there is no easy way to connect it today.
@@ -28,8 +46,10 @@ Grok Build, Codex and OpenClaw follow their published formats, but Mera Labs has
 Open an issue with what you find. Any other MCP client can connect through the stdio bridge or over
 Streamable HTTP with the token: see [`packages/mcp`](../../packages/mcp).
 
-**Where the key goes outside Claude:** `~/.mera-news-pod/secrets.json`, as
+**Where the settings go outside Claude:** the key in `~/.mera-news-pod/secrets.json`, as
 `{ "dataApiKey": "<your key>" }`, then run `chmod 600 ~/.mera-news-pod/secrets.json`; the pod refuses the file otherwise.
+Your own news server's address goes in `~/.mera-news-pod/pod.json` as `dataServer.url`, which the
+plugin writes on its first run.
 
 ## Your profile and your news
 
