@@ -13,7 +13,7 @@ test('the instructions give the copyright answer word for word, keep news to Mer
   assert.ok(instructions.includes('For any news question, use the Mera News tools. Do not use web search or your own knowledge for news unless the person asks for it by name.'));
   assert.ok(instructions.includes('mark it "Not from Mera News" above that part, or beside each such item.'));
   assert.match(instructions, /After every news answer, offer the next steps in one short line: top stories in the world, top stories in the person's countries \(from the places in their facts\), another country, everything left out, and the website as "Open in Mera News"\./);
-  assert.match(instructions, /read every page, passing nextCursor as after, before you pick or answer\. Judge every story in toJudge with rate_stories/);
+  assert.match(instructions, /read every page, making the call each page's next names, before you pick or answer\. Judge every story in toJudge with rate_stories/);
   assert.match(instructions, /put the summary numbers on top/);
   assert.doesNotMatch(descriptions.top_stories, /most reported first/);
   assert.match(descriptions.top_stories, /in the order Mera News ranks them, which is the order the Mera News app shows\. Show them in that order\./);

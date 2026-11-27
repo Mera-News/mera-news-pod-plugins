@@ -1005,7 +1005,7 @@ SOFTWARE.
 
 ----
 
-hono 4.13.21
+hono 4.13.23
 
 MIT License
 

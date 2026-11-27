@@ -43,7 +43,9 @@ export const createPlugin: PluginModule['createPlugin'] = (ctx: PluginContext): 
   const config = readConfig(ctx.config);
   // The pod gives this plugin `<home>/data/plugins/mcp`, which is where the bridge and the bin look.
   const tokenFile = path.join(ctx.dataDir, 'token');
-  const handler = createMcpHandler(() => buildServer(v2), { legacy: 'stateless', onerror: () => ctx.log.error('The MCP handler failed.') });
+  // Tools whose paged query the news server refused as unknown, for the life of the process.
+  const oldServer = new Set<string>();
+  const handler = createMcpHandler(() => buildServer(v2, oldServer), { legacy: 'stateless', onerror: () => ctx.log.error('The MCP handler failed.') });
   const serve = toNodeHandler(handler, { onerror: () => ctx.log.error('A request could not be served.') });
   let listening: http.Server | undefined;
   let port = config.port;

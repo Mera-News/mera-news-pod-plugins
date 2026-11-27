@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FactView } from 'mera-news-pod/plugin-api';
 import { instructions } from '../../src/text';
-import { deliveringSuggestions, DONE, estimate, fakeServices, json, pick, run, status } from './helpers';
+import { MAX_CHARS, MAX_TOKENS } from '../../src/reply';
+import { deliveringSuggestions, DONE, estimate, fakeServices, json, pick, run, status, walk } from './helpers';
 
 test('the server states its instructions, fourteen tools with annotations, and two prompts', async () => {
   const r = await run();
@@ -19,7 +20,7 @@ test('the server states its instructions, fourteen tools with annotations, and t
     for (const n of ['remove_facts', 'edit_topics', 'set_reading']) assert.deepEqual(hints(n), { readOnlyHint: false, destructiveHint: true });
     assert.match(by.add_facts.description!, /^Save short facts about the person/);
     assert.deepEqual((by.add_facts.inputSchema as any).properties.statements.maxItems, 10);
-    assert.deepEqual((by.get_suggestions.inputSchema as any).properties.limit.maximum, 25);
+    for (const n of ['get_suggestions', 'search_news', 'latest_news', 'top_stories', 'news_for_profile']) assert.deepEqual((by[n].inputSchema as any).properties.limit.maximum, 10000, n);
     const prompts = await c.listPrompts();
     assert.deepEqual(prompts.prompts.map((p) => p.name).sort(), ['daily_digest', 'set_up_profile']);
   } finally {
@@ -113,7 +114,8 @@ test('every error carries code, message and next, and a bad argument never shows
       ['add_facts', {}, 'statements'],
       ['remove_facts', { ids: 'f1' }, 'ids'],
       ['edit_topics', { weight: [{ topicId: 't', weight: 5 }] }, 'weight.0.weight'],
-      ['get_suggestions', { limit: 99 }, 'limit'],
+      ['get_suggestions', { limit: 10001 }, 'limit'],
+      ['get_suggestions', { since: 'not a cursor' }, 'since'],
       ['set_reading', { everyMinutes: 2 }, 'everyMinutes'],
     ];
     for (const [name, args, field] of bad) {
@@ -126,7 +128,8 @@ test('every error carries code, message and next, and a bad argument never shows
       assert.doesNotMatch(body.message, /expected|Too (small|big)|Invalid|Input validation/);
       assert.ok(body.next.length > 0);
     }
-    const coded = await c.callTool({ name: 'get_suggestions', arguments: { since: 'zz' } });
+    // A cursor in the pod's own form goes to the pod, which keeps its code and next step.
+    const coded = await c.callTool({ name: 'get_suggestions', arguments: { since: 'ab.99' } });
     assert.equal(coded.isError, true);
     assert.deepEqual(json(coded), { code: 'unknown_cursor', message: 'That cursor was not issued by this pod.', next: 'call without since' });
     const plain = await c.callTool({ name: 'get_status', arguments: {} });
@@ -149,10 +152,10 @@ const bigFacts = (n: number, topicsEach: number): FactView[] =>
     needsReview: false,
   }));
 
-test('no reply is over the cap with 200 facts, 300 topics and 25 picks', async () => {
+test('no reply is over the cap with 200 facts, 300 topics and 60 picks', async () => {
   const facts = bigFacts(200, 1).map((f, i) => (i < 100 ? { ...f, topics: [...f.topics, ...bigFacts(1, 1)[0].topics.map((t, j) => ({ ...t, id: `x${i}-${j}` }))] } : f));
   assert.equal(facts.reduce((n, f) => n + f.topics.length, 0), 300);
-  const picks = Array.from({ length: 25 }, (_, i) => ({ ...pick(i), reason: `${pick(i).reason} `.repeat(14) }));
+  const picks = Array.from({ length: 60 }, (_, i) => ({ ...pick(i), reason: `${pick(i).reason} `.repeat(14) }));
   const services = fakeServices({
     profile: { ...fakeServices().profile, get: async () => ({ facts, nextOffset: 200, setup: DONE }) },
     suggestions: deliveringSuggestions(picks),
@@ -161,17 +164,18 @@ test('no reply is over the cap with 200 facts, 300 topics and 25 picks', async (
   try {
     const c = await r.client();
     const sizes: Record<string, number> = {};
-    for (const [name, args] of [['get_profile', {}], ['get_suggestions', { limit: 25 }]] as const) {
+    for (const [name, args] of [['get_profile', {}], ['get_suggestions', { limit: 60 }]] as const) {
       const text = (((await c.callTool({ name, arguments: args })).content as any[])[0]).text as string;
       sizes[name] = estimate(text);
-      assert.ok(sizes[name] <= 6000, `${name} is ${sizes[name]} tokens`);
+      assert.ok(sizes[name] <= MAX_TOKENS && text.length <= MAX_CHARS, `${name} is ${sizes[name]} tokens`);
       const reply = json({ content: [{ text }] });
       if (name === 'get_profile') {
         assert.equal(reply.truncated, true);
         assert.equal(reply.nextOffset, reply.facts.length);
       } else {
-        assert.ok(reply.picks.length < 25, 'the page was cut to fit');
+        assert.ok(reply.picks.length < 60, 'the page was cut to fit');
         assert.equal(reply.more, true);
+        assert.equal(reply.remaining, 60 - reply.picks.length);
       }
     }
     console.log(`largest replies, in tokens: ${JSON.stringify(sizes)}`);
@@ -181,21 +185,12 @@ test('no reply is over the cap with 200 facts, 300 topics and 25 picks', async (
 });
 
 test('picks cut to fit all arrive over successive calls, none twice and none lost', async () => {
-  const picks = Array.from({ length: 25 }, (_, i) => ({ ...pick(i), reason: `Reason ${i}: ${'long words '.repeat(80)}` }));
+  const picks = Array.from({ length: 80 }, (_, i) => ({ ...pick(i), reason: `Reason ${i}: ${'long words '.repeat(80)}` }));
   const r = await run({ services: fakeServices({ suggestions: deliveringSuggestions(picks) }) });
   try {
-    const c = await r.client();
-    const seen: string[] = [];
-    let calls = 0;
-    for (let more = true; more; calls++) {
-      assert.ok(calls < 25, 'the picks ran out');
-      const result = await c.callTool({ name: 'get_suggestions', arguments: { limit: 25 } });
-      assert.ok(estimate(((result.content as any[])[0]).text) <= 6000);
-      const reply = json(result);
-      seen.push(...reply.picks.map((p: any) => p.id));
-      more = reply.more;
-    }
+    const { seen, calls, cuts } = await walk(await r.client(), 'get_suggestions', { limit: 80 }, (reply) => reply.picks.map((p: any) => p.id), 80);
     assert.ok(calls > 1, 'the reasons were long enough to need more than one call');
+    assert.ok(cuts === 0, 'get_suggestions marks no cut: more and remaining carry it');
     assert.deepEqual(seen, picks.map((p) => p.id));
   } finally {
     await r.stop();
@@ -208,7 +203,7 @@ test('a pick far over the cap is still sent, with its text shortened so it fits'
   try {
     const c = await r.client();
     const result = await c.callTool({ name: 'get_suggestions', arguments: {} });
-    assert.ok(estimate(((result.content as any[])[0]).text) <= 6000);
+    assert.ok(estimate(((result.content as any[])[0]).text) <= MAX_TOKENS);
     const reply = json(result);
     assert.deepEqual(reply.picks.map((p: any) => p.id), ['p1', 'p2']);
     assert.deepEqual([reply.picks[0].title.length, reply.picks[0].reason.length, reply.picks[0].facts.length], [500, 1000, 10]);
@@ -225,7 +220,7 @@ test('one fact with a huge topic list still fits', async () => {
   try {
     const c = await r.client();
     const text = (((await c.callTool({ name: 'get_profile', arguments: {} })).content as any[])[0]).text as string;
-    assert.ok(estimate(text) <= 6000);
+    assert.ok(estimate(text) <= MAX_TOKENS);
     assert.equal(JSON.parse(text).facts.length, 1);
   } finally {
     await r.stop();

@@ -251,9 +251,10 @@ describe('the pod with the mcp plugin, driven by an MCP client', () => {
     const latest = await call('latest_news', { limit: 3 });
     assert.equal(latest.results.length, 3);
     assert.ok(latest.results.every((r: { title: string }) => titles.has(r.title)));
-    assert.equal(typeof latest.nextCursor, 'string');
-    const next = await call('latest_news', { limit: 3, after: latest.nextCursor });
-    assert.ok(next.results.every((r: { id: string }) => !latest.results.some((l: { id: string }) => l.id === r.id)));
+    assert.equal('next' in latest, false, 'limit is the total, so the three asked for are all');
+    const all = await call('latest_news', {});
+    assert.equal(new Set(all.results.map((r: { id: string }) => r.id)).size, articles.length, 'every article once');
+    assert.equal('next' in all, false, 'nothing more to come');
     const nl = await call('latest_news', { country: 'NLD' });
     assert.deepEqual(nl.results.map((r: { title: string }) => r.title), ['Central bank holds interest rates steady citing sluggish inflation']);
   });

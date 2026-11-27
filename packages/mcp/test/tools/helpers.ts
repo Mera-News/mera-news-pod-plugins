@@ -1,4 +1,5 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -6,6 +7,7 @@ import path from 'node:path';
 import type { PodServices, PodStatus, PickView, ProfileSetup } from 'mera-news-pod/plugin-api';
 import type { McpContext } from '../../src/tools';
 import { createPlugin } from '../../src';
+import { MAX_CHARS, MAX_TOKENS } from '../../src/reply';
 
 export const DONE: ProfileSetup = { complete: true, findingTopics: [], toReview: [], noTopics: [] };
 export const TOKEN = 'test-token-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -85,19 +87,111 @@ export function fakeServices(over: { [K in keyof PodServices]?: Partial<PodServi
 }
 
 /**
- * Suggestions that keep the services' promise: a page is cut until `fits` passes (never below one
- * pick), and only the picks returned count as delivered.
+ * Suggestions that keep the services' promise: a page from `since` (the pod's `e.<n>` cursor, 'all',
+ * or the last delivered), cut until `fits` passes (never below one pick), and only the picks
+ * returned count as delivered.
  */
 export function deliveringSuggestions(all: PickView[]): PodServices['suggestions'] {
   let delivered = 0;
   return {
-    get: async ({ limit, fits }) => {
-      let page = all.slice(delivered, delivered + limit);
+    get: async ({ since, limit, fits, peek }) => {
+      const from = since === undefined ? delivered : since === 'all' ? 0 : Number(/^e\.(\d+)$/.exec(since)?.[1] ?? NaN);
+      if (Number.isNaN(from)) throw Object.assign(new Error('That cursor was not issued by this pod.'), { code: 'unknown_cursor', next: 'call without since' });
+      let page = all.slice(from, from + limit);
       while (fits && page.length > 1 && !fits(page)) page = page.slice(0, -1);
-      delivered += page.length;
-      return { state: 'ok', hint: 'Reading is on.', nextReadAt: null, picks: page, cursor: `e.${delivered}`, more: delivered < all.length };
+      const last = from + page.length;
+      if (!peek) delivered = Math.max(delivered, last);
+      return { state: 'ok', hint: 'Reading is on.', nextReadAt: null, picks: page, cursor: `e.${last}`, more: last < all.length };
     },
   };
+}
+
+type Body = { operationName: string; query: string; variables: Record<string, any> };
+
+/**
+ * A news server for the news tools, with `count` articles, that holds every request to the real
+ * server's limits: 50 ids for GetArticlesForTopicsByIds, 500 for ClusterMembershipsForArticles,
+ * `first` 1 to 200 headlines, 1 to 50 newest articles, a search page of 1 to 100 (25 for the old
+ * searchNews). A request over a limit is recorded in `over` and answered with an error, so the tool
+ * fails. `old` makes it a server from before paging: the paged fields fail with `oldCode`.
+ */
+export function fakeNews(opts: { count?: number; titleLength?: number; old?: boolean; oldCode?: string } = {}) {
+  const count = opts.count ?? 1000;
+  const pad = 'w'.repeat(opts.titleLength ?? 40);
+  const ids = Array.from({ length: count }, (_, i) => `a${String(i).padStart(4, '0')}`);
+  const at = new Map(ids.map((id, i) => [id, i]));
+  const article = (i: number) => ({
+    _id: ids[i],
+    title: `Kop ${ids[i]} ${pad}`,
+    title_en: `Headline ${ids[i]} ${pad}`,
+    article_url: `https://news.example/${ids[i]}`,
+    pubDate: new Date(Date.UTC(2026, 0, 2) - i * 60_000).toISOString(),
+    original_language_code: 'nl',
+    publicationSource: { publication_name: `Paper ${i % 7}` },
+    description: 'SECRET BODY TEXT',
+  });
+  const calls: Body[] = [];
+  const over: string[] = [];
+  const refuse = (what: string) => (over.push(what), { errors: [{ message: what, extensions: { code: 'OVER_CAP' } }] });
+  const unknown = { errors: [{ message: 'Cannot query that field.', extensions: { code: opts.oldCode ?? 'GRAPHQL_VALIDATION_FAILED' } }] };
+  const from = (after: string | null | undefined, tag: string) => (after ? Number(after.slice(tag.length + 1)) + (tag === 's' ? 0 : 1) : 0);
+  const graphql = async (raw: unknown): Promise<any> => {
+    const b = raw as Body;
+    calls.push(b);
+    const v = b.variables;
+    switch (b.operationName) {
+      case 'SearchNews': {
+        const paged = b.query.includes('searchNewsPage');
+        if (paged && opts.old) return unknown;
+        const max = paged ? 100 : 25;
+        if (!(v.limit >= 1 && v.limit <= max)) return refuse(`search limit ${v.limit}`);
+        const start = paged ? from(v.after, 's') : 0;
+        const hits = ids.slice(start, start + v.limit).map((_id) => ({ _id }));
+        return { data: paged ? { searchNewsPage: { hits, nextCursor: start + v.limit < count ? `s:${start + v.limit}` : null } } : { searchNews: hits } };
+      }
+      case 'GetArticlesForTopicsByIds': {
+        if (!(v.articleIds.length >= 1 && v.articleIds.length <= 50)) return refuse(`${v.articleIds.length} ids`);
+        const articles = (v.articleIds as string[]).filter((id) => at.has(id)).map((id) => {
+          const { original_language_code, publicationSource, ...rest } = article(at.get(id)!);
+          return { ...rest, language_code: original_language_code, publication_name: publicationSource.publication_name };
+        });
+        return { data: { articlesForTopicsByIds: { articles } } };
+      }
+      case 'ClusterMembershipsForArticles': {
+        if (v.articleIds.length > 500) return refuse(`${v.articleIds.length} membership ids`);
+        // Three articles in a row are one story.
+        return { data: { clusterMembershipsForArticles: (v.articleIds as string[]).map((id) => ({ articleId: id, clusters: [{ clusterId: `c${Math.floor(at.get(id)! / 3)}`, stableClusterId: null, confidence: 0.9 }] })) } };
+      }
+      case 'GetArticlesForCountry': {
+        const paged = b.query.includes('itemCursors');
+        if (paged && opts.old) return unknown;
+        if (!(v.first >= 1 && v.first <= 50)) return refuse(`newest first ${v.first}`);
+        const start = from(v.after, 'n');
+        const page = ids.slice(start, start + v.first).map((_, j) => start + j);
+        return {
+          data: {
+            articlesForCountry: {
+              articles: page.map(article),
+              ...(paged ? { itemCursors: page.map((i) => `n:${i}`) } : {}),
+              pageInfo: { endCursor: page.length ? `n:${page.at(-1)}` : null, hasNextPage: start + page.length < count },
+            },
+          },
+        };
+      }
+      case 'GetTopHeadlinesForCountry': {
+        const paged = b.query.includes('publisherCount');
+        if (paged && opts.old) return unknown;
+        if (!(v.first >= 1 && v.first <= 200)) return refuse(`headlines first ${v.first}`);
+        const start = from(v.after, 'h');
+        const page = ids.slice(start, start + v.first).map((_, j) => start + j);
+        const headlines = page.map((i) => ({ clusterSize: 12, article: article(i), ...(paged ? { publisherCount: 9, cursor: `h:${i}` } : {}) }));
+        return { data: { topHeadlinesForCountry: { headlines, pageInfo: { endCursor: page.length ? `h:${page.at(-1)}` : null, hasNextPage: start + page.length < count } } } };
+      }
+      default:
+        return { errors: [{ message: 'not served', extensions: { code: 'NOT_IMPLEMENTED' } }] };
+    }
+  };
+  return { ids, calls, over, services: fakeServices({ news: { graphql } }) };
 }
 
 export const estimate = (text: string) => Math.ceil(text.length / 4);
@@ -165,3 +259,31 @@ export async function run(opts: { services?: PodServices; config?: unknown; toke
 }
 
 export const json = (result: { content?: unknown }) => JSON.parse(((result.content as { text: string }[])[0]).text);
+
+/**
+ * Calls a list tool, then each call its `next` names, until a reply has no next. Every reply must be
+ * within the hard cap, and `remaining` must count down by what was shown.
+ */
+export async function walk(c: Client, name: string, args: Record<string, unknown>, items: (reply: any) => string[], total: number) {
+  const seen: string[] = [];
+  let cuts = 0;
+  let calls = 0;
+  let reply: any;
+  for (let a: Record<string, unknown> | undefined = args; a; calls++) {
+    assert.ok(calls < 100, 'the walk does not end');
+    const res = await c.callTool({ name, arguments: a });
+    const text = (res.content as { text: string }[])[0].text;
+    assert.equal(res.isError, undefined, text);
+    assert.ok(estimate(text) <= MAX_TOKENS && text.length <= MAX_CHARS, `reply ${calls} is ${text.length} characters`);
+    reply = JSON.parse(text);
+    seen.push(...items(reply));
+    if (reply.truncated) cuts++;
+    const call = /Call (\w+) with (\{.*\}): (\d+) of the (\d+) asked for are still to come\.$/.exec(reply.next ?? '');
+    if (call) {
+      assert.equal(call[1], name);
+      assert.deepEqual([Number(call[3]), Number(call[4]), reply.remaining], [total - seen.length, total, total - seen.length]);
+    }
+    a = call ? JSON.parse(call[2]) : undefined;
+  }
+  return { seen, cuts, calls, last: reply };
+}
