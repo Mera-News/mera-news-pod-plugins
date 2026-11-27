@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { PodServices, ProfileStory, StoriesSummary } from 'mera-news-pod/plugin-api';
-import { estimate, fakeServices, json, run, status } from './helpers';
+import { fakeServices, json, run, status, walk } from './helpers';
 
 const summary = (over: Partial<StoriesSummary> = {}): StoriesSummary => ({
   windowHours: 48,
@@ -47,6 +47,8 @@ function pagedStories(all = STORIES) {
   const asked: { after?: string; limit?: number; peek?: boolean }[] = [];
   const forProfile: PodServices['stories']['forProfile'] = async (o = {}) => {
     asked.push({ after: o.after, limit: o.limit, peek: o.peek });
+    // The pod's page limit, as in the pod this package pins.
+    if ((o.limit ?? 20) > 50) throw Object.assign(new Error('limit must be a whole number from 0 to 50.'), { code: 'bad_input', next: 'pass a smaller limit' });
     const from = o.after ? Number(o.after.split('.')[1]) : 0;
     let page = all.slice(from, from + (o.limit ?? 20));
     while (o.fits && page.length > 1 && !o.fits(page, summary())) page = page.slice(0, -1);
@@ -78,25 +80,21 @@ test('news_for_profile: the summary numbers, the stories still to judge by fact,
   }
 });
 
-test('news_for_profile: a page cut to fit continues by cursor, so every page together carries every story once', async () => {
-  const many = Array.from({ length: 30 }, (_, i) => story(`m${i}`, { titleEn: 'A long English headline for this story '.repeat(12).slice(0, 480), title: `Een heel lang verhaal nummer ${i} `.repeat(14).slice(0, 480) }));
+test('news_for_profile: a page cut to fit continues by cursor, so every page together carries every story once, and only the first carries the topic and fact lists', async () => {
+  const many = Array.from({ length: 60 }, (_, i) => story(`m${i}`, { titleEn: 'A long English headline for this story '.repeat(12).slice(0, 480), title: `Een heel lang verhaal nummer ${i} `.repeat(14).slice(0, 480) }));
   const s = pagedStories(many);
   const r = await run({ services: fakeServices({ stories: s.stories }) });
   try {
-    const c = await r.client();
-    const seen: string[] = [];
-    let after: string | undefined;
-    let pages = 0;
-    do {
-      const page = json(await c.callTool({ name: 'news_for_profile', arguments: after ? { after, limit: 50 } : { limit: 50 } }));
-      assert.ok(estimate(JSON.stringify(page)) <= 8000);
-      if (page.nextCursor) assert.match(page.next, /call news_for_profile again with after set to nextCursor/);
-      seen.push(...page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id)));
-      after = page.nextCursor;
-      pages++;
-    } while (after);
-    assert.ok(pages > 1, 'the reply was cut');
+    const pages: any[] = [];
+    const { seen } = await walk(await r.client(), 'news_for_profile', { limit: 60 }, (page) => (pages.push(page), page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id))), 60);
+    assert.ok(pages.length > 1);
+    assert.ok(pages.some((p, i) => i < pages.length - 1 && p.toJudge[0].stories.length < 50), 'a page was cut below the pod\'s page');
+    for (const p of pages.slice(0, -1)) assert.match(p.next, /^Read every page before you pick or answer\. Call news_for_profile with /);
+    assert.match(pages.at(-1).next, /^This is the last page\./);
     assert.deepEqual(seen, many.map((m) => m.id));
+    assert.deepEqual([pages[0].summary.topics, pages[0].summary.facts], [summary().topics, summary().facts]);
+    for (const p of pages.slice(1)) assert.deepEqual(['topics' in p.summary, 'facts' in p.summary, p.summary.unjudged], [false, false, 2]);
+    assert.ok(s.asked.every((a) => (a.limit ?? 0) <= 50), 'never over the pod\'s page of 50');
   } finally {
     await r.stop();
   }
