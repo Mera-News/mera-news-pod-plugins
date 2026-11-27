@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "mera-news",
   "display_name": "Mera News",
-  "version": "0.4.17",
+  "version": "0.4.18",
   "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests.",
   "long_description": "Mera News reads the news for you and picks the stories that matter to what you follow. Tell your assistant about your work, your city or the stories you care about. Those facts are kept in a small database on your computer, never with Mera Labs. The news comes from Mera News, with reports of one event grouped into one story and a link to every publisher. Search the news, get the latest from a country, and read each story on the publisher's own site. It reads from a news server you run yourself (set its address in \"News server address\"), or from Mera News with a key you ask for at https://mera.news/en/api-key.",
   "author": {

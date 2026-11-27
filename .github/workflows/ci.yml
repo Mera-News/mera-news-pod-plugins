@@ -9,7 +9,7 @@ on:
 
 env:
   # The data server commit whose schema the fake data server in the tests serves.
-  DATA_SERVER_REV: 81a50f77b08039c01b0975e52b0845b00992d6aa
+  DATA_SERVER_REV: 6ce01ac6aa94ad95405542bf4a0899bab0395d84
 
 jobs:
   test:
