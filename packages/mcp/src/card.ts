@@ -17,6 +17,8 @@ export interface CardStory {
   reason?: string;
   /** Other publishers' reports of the same story. */
   others: { publisher: string; link: string }[];
+  /** A top_stories list item: how many reports and publishers the story has, such as "12 reports from 9 publishers". */
+  coverage?: string;
 }
 export interface CardSection {
   heading: string;
@@ -39,6 +41,9 @@ export function sectionsOf(reply: unknown): CardSection[] {
     if (str(s.publishedAt)) out.publishedAt = str(s.publishedAt);
     if (str(s.level)) out.level = str(s.level);
     if (str(s.reason)) out.reason = str(s.reason);
+    const reports = typeof s.reportCount === 'number' ? s.reportCount : 0;
+    const publishers = typeof s.publisherCount === 'number' ? s.publisherCount : 0;
+    if (reports > 1) out.coverage = `${reports} reports` + (publishers > 0 ? ` from ${publishers} ${publishers === 1 ? 'publisher' : 'publishers'}` : '');
     return [out];
   };
   const reportsOf = (s: any) =>
@@ -89,8 +94,13 @@ const STYLE = `
 :root{color-scheme:light dark;--bg:var(--color-background-primary,light-dark(#fff,#1c1c1e));--card:var(--color-background-secondary,light-dark(#f5f5f7,#2c2c2e));--text:var(--color-text-primary,light-dark(#1d1d1f,#f5f5f7));--muted:var(--color-text-secondary,light-dark(#6e6e73,#a1a1a6));--line:var(--color-border-primary,light-dark(#e5e5ea,#3a3a3c));--accent:light-dark(#d9480f,#ff8a4c)}
 :root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:transparent;color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
-main{display:flex;flex-direction:column;gap:14px;padding:2px}
+body{display:flex;flex-direction:column;max-height:560px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:2px 2px 8px;font-size:13px;font-weight:600;color:var(--muted)}
+header .head{text-transform:uppercase;letter-spacing:.02em}
+main{display:flex;flex-direction:column;gap:14px;padding:2px;flex:1;min-height:0;overflow-y:auto}
+footer{padding:8px 2px 2px}
 h2{font-size:13px;font-weight:600;color:var(--muted);margin:0 0 6px;text-transform:uppercase;letter-spacing:.02em}
+.foot{margin:0}
 ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 li{background:var(--card);border-radius:12px;padding:12px 14px}
 .meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:4px}
@@ -101,7 +111,7 @@ a.title{display:block;color:var(--text);font-weight:600;text-decoration:none;fon
 a.title:hover{text-decoration:underline}
 .en{color:var(--muted);font-size:13px;margin-top:2px}
 .reason{margin-top:6px}
-.others{margin-top:6px;font-size:13px;color:var(--muted)}
+.others,.coverage{margin-top:6px;font-size:13px;color:var(--muted)}
 .others a{color:inherit}
 .read{display:inline-block;margin-top:8px;font-size:13px;font-weight:600;color:var(--accent);text-decoration:none}
 .foot{font-size:12px;color:var(--muted)}
@@ -139,10 +149,16 @@ const ago = (iso) => {
 const draw = (result) => {
   const main = document.querySelector('main');
   main.replaceChildren();
+  document.querySelector('footer').replaceChildren();
+  const head = document.querySelector('header');
+  head.replaceChildren();
   let reply = result && result.structuredContent;
   if (!reply) { try { reply = JSON.parse(((result && result.content) || []).find((c) => c.type === 'text').text); } catch { reply = null; } }
-  for (const s of sectionsOf(reply)) {
-    const sec = el('section'); sec.append(el('h2', '', s.heading));
+  const sections = sectionsOf(reply);
+  const total = sections.reduce((n, s) => n + s.stories.length, 0);
+  if (total) head.append(el('span', 'head', sections.length === 1 ? sections[0].heading : 'Mera News'), el('span', 'count', total === 1 ? '1 story' : total + ' stories'));
+  for (const s of sections) {
+    const sec = el('section'); if (sections.length > 1) sec.append(el('h2', '', s.heading));
     const ol = el('ol');
     for (const st of s.stories) {
       const li = el('li');
@@ -154,6 +170,7 @@ const draw = (result) => {
       li.append(meta, link('title', st.link, st.title || st.titleEn || st.link));
       if (st.titleEn && st.titleEn !== st.title) li.append(el('div', 'en', st.titleEn));
       if (st.reason) li.append(el('div', 'reason', st.reason));
+      if (st.coverage) li.append(el('div', 'coverage', st.coverage));
       if (st.others.length) {
         const o = el('div', 'others', 'Also reported by ');
         st.others.forEach((r, i) => { if (i) o.append(', '); o.append(link('', r.link, r.publisher || new URL(r.link).hostname)); });
@@ -164,7 +181,7 @@ const draw = (result) => {
     }
     sec.append(ol); main.append(sec);
   }
-  if (main.children.length) main.append(el('p', 'foot', 'Each story belongs to its publisher. Read it on their site.'));
+  if (total) document.querySelector('footer').append(el('p', 'foot', 'Each story belongs to its publisher. Read it on their site.'));
 };
 window.addEventListener('message', (e) => {
   const m = e.data;
@@ -181,4 +198,4 @@ request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: info, clientI
   .catch(() => notify('ui/notifications/initialized', {}));
 `;
 
-export const cardHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mera News</title><style>${STYLE}</style></head><body><main></main><script>${SCRIPT}</script></body></html>`;
+export const cardHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mera News</title><style>${STYLE}</style></head><body><header></header><main></main><footer></footer><script>${SCRIPT}</script></body></html>`;

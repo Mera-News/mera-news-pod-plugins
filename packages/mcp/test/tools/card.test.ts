@@ -72,6 +72,28 @@ test('card: every story keeps its publisher and link; reports, groups and levels
   assert.deepEqual(sectionsOf(null), []);
 });
 
+test('card: a top_stories list item says how many reports and publishers it has, and a story of one says nothing', () => {
+  const [top] = sectionsOf({
+    scope: 'world',
+    stories: [
+      { id: 'a', title: 'Storm closes Schiphol runways', link: 'https://nos.example/a', publisher: 'NOS', reportCount: 12, publisherCount: 9 },
+      { id: 'b', title: 'Two reports', link: 'https://b.example/b', publisher: 'B', reportCount: 2, publisherCount: 1 },
+      { id: 'c', title: 'Old server', link: 'https://c.example/c', publisher: 'C', reportCount: 3 },
+      { id: 'd', title: 'Alone', link: 'https://d.example/d', publisher: 'D', reportCount: 1, publisherCount: 1 },
+    ],
+  });
+  assert.equal(top.heading, 'Top stories');
+  assert.deepEqual(top.stories.map((s) => s.coverage), ['12 reports from 9 publishers', '2 reports from 1 publisher', '3 reports', undefined]);
+  assert.deepEqual(top.stories.map((s) => s.others), [[], [], [], []]);
+});
+
+test('card: the list scrolls inside a card at most 560 px high, under a header that counts the stories', () => {
+  assert.match(cardHtml, /body\{display:flex;flex-direction:column;max-height:560px\}/);
+  assert.match(cardHtml, /main\{[^}]*overflow-y:auto/);
+  assert.match(cardHtml, /<body><header><\/header><main><\/main><footer><\/footer>/);
+  assert.match(cardHtml, /' stories'/);
+});
+
 test('card: the page script parses', () => {
   const script = /<script>([\s\S]*)<\/script>/.exec(cardHtml)?.[1] ?? '';
   assert.ok(script.includes("'ui/initialize'"));
