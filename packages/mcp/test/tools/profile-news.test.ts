@@ -3,7 +3,6 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { PodServices, ProfileStory, StoriesSummary } from 'mera-news-pod/plugin-api';
-import { sectionsOf } from '../../src/card';
 import { assertShow, fakeServices, json, run, status, walk } from './helpers';
 import { MAX_CHARS } from '../../src/reply';
 
@@ -77,9 +76,7 @@ test('news_for_profile: the summary numbers, the stories still to judge by fact,
     assert.equal(page.nextCursor, undefined);
     assert.match(page.next, /^This is the last page\. Judge every story in toJudge, on every page, with rate_stories/);
     assert.doesNotMatch(JSON.stringify(page), /img\.example/, 'no image address for the assistant');
-    // The card counts from the same field the show line used, on judged stories too.
     for (const x of [...page.picked, ...page.leftOut]) assertShow(x);
-    assert.deepEqual(sectionsOf(page).flatMap((sec) => sec.stories.map((x) => x.more)), ['+1 report', '+1 report', '+1 report', '+1 report']);
   } finally {
     await r.stop();
   }

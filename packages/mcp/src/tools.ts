@@ -3,7 +3,6 @@ import path from 'node:path';
 import type { JudgeResult, PickView, PluginContext, PodStatus, ProfileSetup, ProfileStory, ProfileView, StoriesSummary } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
 import { DIGEST_FILE, HINT_FILE, hintOf, isDue, lastMoment, MISSED_AFTER_MS, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
-import { CARD_MIME, CARD_TOOLS, CARD_URI, cardHtml } from './card';
 import { siteLink } from './link';
 import { badCursor, coded, decode, LIMIT_MAX, more, OLD_SERVER_NEXT, start } from './paging';
 import { fail, fit, ok, within } from './reply';
@@ -276,7 +275,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * topic and fact lists are the same on every page, so only the first page carries them.
  */
 function profileNews(page: { summary: StoriesSummary; stories: ProfileStory[]; shownBefore: number }, first: boolean, paging?: ReturnType<typeof more>) {
-  // Every item carries the reports count its show line uses, so the card shows the same +N.
   const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher, reports: s.reports, show: showOf(s.title, s.link, s.publisher, { reports: s.reports, titleEn: s.titleEn }) });
   const toJudge = new Map<string, { factId: string; fact: string; stories: object[] }>();
   const picked: object[] = [];
@@ -354,19 +352,13 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
       () => undefined,
     );
   const server = new McpServer({ name: 'mera-news-pod-mcp', version: '0.1.0' }, { instructions });
-  server.registerResource('news-card', CARD_URI, { title: 'Mera News stories', mimeType: CARD_MIME }, () => ({
-    contents: [{ uri: CARD_URI, mimeType: CARD_MIME, text: cardHtml, _meta: { ui: { prefersBorder: false } } }],
-  }));
 
   function tool<K extends keyof typeof schemas>(
     name: K,
     annotations: ToolAnnotations,
     run: (input: z.output<(typeof schemas)[K]>) => Promise<CallToolResult>,
   ) {
-    // A tool in CARD_TOOLS names the news card, which apps that draw MCP Apps show under the reply.
-    // Both keys, as the MCP Apps SDK sets them: some hosts read only the flat one.
-    const _meta = CARD_TOOLS.has(name) ? { ui: { resourceUri: CARD_URI }, 'ui/resourceUri': CARD_URI } : undefined;
-    server.registerTool(name, { description: descriptions[name], inputSchema: advertise(schemas[name]), annotations, ...(_meta ? { _meta } : {}) }, async (raw: unknown) => {
+    server.registerTool(name, { description: descriptions[name], inputSchema: advertise(schemas[name]), annotations }, async (raw: unknown) => {
       const parsed = schemas[name].safeParse(raw);
       if (!parsed.success) {
         const field = parsed.error.issues[0]?.path.join('.') || 'input';

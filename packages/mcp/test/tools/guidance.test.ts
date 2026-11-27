@@ -119,3 +119,9 @@ test('choosing a digest time tells the assistant to create the scheduled task no
     await r.stop();
   }
 });
+
+test('show line: a right-to-left publisher or headline is isolated, so the count after it stays in place', () => {
+  assert.equal(showOf('Ukraine', 'https://x.example/1', 'اطلاعات آنلاین', { reports: 117 }), '[Ukraine](https://x.example/1) · ⁨اطلاعات آنلاین⁩ +116 reports');
+  assert.equal(showOf('שלום', 'https://x.example/2', 'NOS', { publishers: 3 }), '[⁨שלום⁩](https://x.example/2) · NOS +2 publications');
+  assert.equal(showOf('Storm', 'https://x.example/3', 'NOS', { publishers: 3 }), '[Storm](https://x.example/3) · NOS +2 publications', 'left-to-right text is left alone');
+});

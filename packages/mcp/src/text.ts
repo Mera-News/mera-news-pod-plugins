@@ -10,7 +10,7 @@ export const publisherNotice =
 export const routingLine =
   'For any request about news, headlines, top stories or what is happening anywhere, use the Mera News tools, not web search, unless the person asks for web search. A country named in a request, as in "headlines from India today", means news from that country, today: call top_stories with its three-letter code.';
 
-// Owner rule: with no card on screen, every story still carries its link, its publisher and, when known,
+// Owner rule: every story carries its link, its publisher and, when known,
 // how many others reported it (only top stories know publishers; search, newest and picks at most reports).
 // The show line is built by code, so this only asks the model to copy it.
 export const showRule =
@@ -46,6 +46,9 @@ const hostOf = (link: string) => {
  * in the link are percent-encoded from their UTF-8 bytes, so it stays the same URL and always parses.
  * An empty headline falls back to `titleEn`, then the publisher, then the link's host.
  */
+const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
+const isolate = (s: string) => (RTL.test(s) ? `\u2068${s}\u2069` : s);
+
 export function showOf(headline: string, link: string, publisher: string, counts: { publishers?: number; reports?: number; titleEn?: string } = {}): string {
   const host = hostOf(link);
   const name = oneLine(publisher) || host;
@@ -53,7 +56,9 @@ export function showOf(headline: string, link: string, publisher: string, counts
   const href = link.replace(/[\s()\\<>]/gu, pct);
   const { publishers = 0, reports = 0 } = counts;
   const extra = publishers > 1 ? ` ${plural(publishers - 1, 'publication')}` : !(publishers > 0) && reports > 1 ? ` ${plural(reports - 1, 'report')}` : '';
-  return `[${text}](${href}) · ${name.replace(/[\\[\]`<>*_]/g, (c) => `\\${c}`)}${extra}`;
+  const pub = name.replace(/[\\[\]`<>*_]/g, (c) => `\\${c}`);
+  // A right-to-left name or headline would reorder the text after it ("116+ <name> reports"), so it is isolated.
+  return `[${isolate(text)}](${href}) · ${isolate(pub)}${extra}`;
 }
 
 const storyLine =

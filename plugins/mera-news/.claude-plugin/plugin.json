@@ -1,7 +1,7 @@
 {
   "name": "mera-news",
   "displayName": "Mera News",
-  "version": "0.4.18",
+  "version": "0.4.19",
   "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests. Runs on a news server you run yourself, or on Mera News with a key you ask for at https://mera.news/en/api-key.",
   "author": {
     "name": "Mera Labs B.V.",
