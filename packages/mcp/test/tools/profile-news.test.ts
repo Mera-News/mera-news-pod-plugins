@@ -48,7 +48,7 @@ function pagedStories(all = STORIES) {
   const forProfile: PodServices['stories']['forProfile'] = async (o = {}) => {
     asked.push({ after: o.after, limit: o.limit, peek: o.peek });
     // The pod's page limit, as in the pod this package pins.
-    if ((o.limit ?? 20) > 50) throw Object.assign(new Error('limit must be a whole number from 0 to 50.'), { code: 'bad_input', next: 'pass a smaller limit' });
+    if ((o.limit ?? 20) > 1000) throw Object.assign(new Error('limit must be a whole number from 0 to 1000.'), { code: 'bad_input', next: 'pass a smaller limit' });
     const from = o.after ? Number(o.after.split('.')[1]) : 0;
     let page = all.slice(from, from + (o.limit ?? 20));
     while (o.fits && page.length > 1 && !o.fits(page, summary())) page = page.slice(0, -1);
@@ -88,13 +88,14 @@ test('news_for_profile: a page cut to fit continues by cursor, so every page tog
     const pages: any[] = [];
     const { seen } = await walk(await r.client(), 'news_for_profile', { limit: 60 }, (page) => (pages.push(page), page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id))), 60);
     assert.ok(pages.length > 1);
-    assert.ok(pages.some((p, i) => i < pages.length - 1 && p.toJudge[0].stories.length < 50), 'a page was cut below the pod\'s page');
+    assert.ok(pages.some((p, i) => i < pages.length - 1 && p.toJudge[0].stories.length < 60), 'a page was cut below what was asked for');
     for (const p of pages.slice(0, -1)) assert.match(p.next, /^Read every page before you pick or answer\. Call news_for_profile with /);
     assert.match(pages.at(-1).next, /^This is the last page\./);
     assert.deepEqual(seen, many.map((m) => m.id));
     assert.deepEqual([pages[0].summary.topics, pages[0].summary.facts], [summary().topics, summary().facts]);
     for (const p of pages.slice(1)) assert.deepEqual(['topics' in p.summary, 'facts' in p.summary, p.summary.unjudged], [false, false, 2]);
-    assert.ok(s.asked.every((a) => (a.limit ?? 0) <= 50), 'never over the pod\'s page of 50');
+    assert.equal(s.asked[0].limit, 60, 'the first call asks the pod for all 60: its page is 1000');
+    assert.ok(s.asked.every((a) => (a.limit ?? 0) <= 100), 'never over what one reply holds');
   } finally {
     await r.stop();
   }

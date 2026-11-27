@@ -108,10 +108,10 @@ const story = (i: number): ProfileStory => ({
   topics: ['storm'],
 });
 
-test('news_for_profile: limit 1000 walked by each reply\'s next gives every story once, against a pod whose page is at most 50', async () => {
+test('news_for_profile: limit 1000 walked by each reply\'s next gives every story once, against the pod\'s page of at most 1000', async () => {
   const all = Array.from({ length: 1000 }, (_, i) => story(i));
   const forProfile: PodServices['stories']['forProfile'] = async (o = {}) => {
-    if ((o.limit ?? 20) > 50) throw Object.assign(new Error('limit must be a whole number from 0 to 50.'), { code: 'bad_input', next: 'pass a smaller limit' });
+    if ((o.limit ?? 20) > 1000) throw Object.assign(new Error('limit must be a whole number from 0 to 1000.'), { code: 'bad_input', next: 'pass a smaller limit' });
     const from = o.after ? Number(o.after.split('.')[1]) : 0;
     let page = all.slice(from, from + (o.limit ?? 20));
     while (o.fits && page.length > 1 && !o.fits(page, summary)) page = page.slice(0, -1);

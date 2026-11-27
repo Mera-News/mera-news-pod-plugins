@@ -129,15 +129,14 @@ const REPORTS_PER_STORY = 25;
 
 /**
  * Items asked for in one call: about what one reply holds, so a cut wastes little. Each is also
- * held to the server's own page limits (search 100, newest 50, ids 50, memberships 500) and to the
- * pod's story page (50 in the pod this package pins).
+ * held to the server's own page limits (search 100, newest 50, ids 50, memberships 500); the pod's
+ * story page (1000) is above it.
  */
 const PER_REPLY = 100;
 const SEARCH_MAX = 100;
 const NEWEST_MAX = 50;
 const BY_IDS_MAX = 50;
 const MEMBERSHIPS_MAX = 500;
-const PROFILE_MAX = 50;
 
 const CLUSTERS = `query ClusterMembershipsForArticles($articleIds: [ID!]!) { clusterMembershipsForArticles(articleIds: $articleIds) { articleId clusters { clusterId stableClusterId confidence } } }`;
 
@@ -562,7 +561,7 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     const first = !after;
     const page = await services.stories.forProfile({
       ...(p.c ? { after: p.c } : {}),
-      limit: Math.min(p.r, PROFILE_MAX),
+      limit: Math.min(p.r, PER_REPLY),
       // The services cut the page until the whole reply fits, and record only the stories returned.
       fits: (stories, summary) => within(JSON.stringify(profileNews({ summary, stories, shownBefore: 0 }, first)), estimate, ENVELOPE_TOKENS),
     });
