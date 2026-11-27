@@ -69,7 +69,8 @@ You > Keep Mera News running adds a login item, so the pod runs without the AI a
 `secrets.json`. The app's key is saved there when there is none. A key you change in the app's
 settings replaces the saved one at the app's next start, but only when the news server refuses the
 saved key and accepts the new one. Updates still arrive through the AI app's extension
-install for now.
+install for now. After an update, the app's next start restarts that pod once, so it runs the
+new version.
 
 ## In pod.json
 

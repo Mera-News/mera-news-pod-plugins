@@ -141,7 +141,8 @@ plugin's settings, it replaces the saved one the next time your AI app starts, b
 news server refuses the saved key and accepts the new one. When you next open Claude, the plugin
 connects to that pod instead of starting its own. Turning the setting off removes the login item and
 stops that pod. The Mac must be awake for Mera News to run. Updates still arrive through your AI
-app's extension install for now. Details:
+app's extension install for now; after one, the next time your AI app starts it restarts that pod
+once, so it runs the new version. Details:
 [keep it running](https://github.com/Mera-News/mera-news-pod/blob/main/docs/self-hosting.md#from-the-mera-news-plugin-on-macos).
 
 Source-available under the PolyForm Shield License 1.0.0, see `LICENSE` at the repo root. The

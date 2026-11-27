@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { atLeast, createKeepRunning, dataServerTakesKey, LABEL, plist, type KeepRunningDeps, type NodeFound } from '../src/keep-running';
+import { atLeast, codeOf, createKeepRunning, dataServerTakesKey, LABEL, plist, startedFile, type KeepRunningDeps, type NodeFound } from '../src/keep-running';
 
 const KEY = 'news-key-from-the-app-0123456789';
 // A Node.js that exists on every machine the tests run on: an agent naming a missing one is broken.
@@ -46,6 +46,12 @@ function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBoots
     ...over,
   };
   return { k: createKeepRunning(deps), deps, calls, keyAtCall, home, serverFile, file: path.join(deps.agentsDir, `${LABEL}.plist`) };
+}
+
+/** As after the agent was started on the files beside `serverFile`: an app start then has no update to apply. */
+function startedOn(home: string, serverFile: string) {
+  fs.mkdirSync(path.dirname(startedFile(home)), { recursive: true });
+  fs.writeFileSync(startedFile(home), codeOf(path.dirname(serverFile)));
 }
 
 test('Node versions: 22.13 is the floor', () => {
@@ -151,6 +157,7 @@ test('at an app\'s start, an agent whose server.cjs is gone is pointed at this o
   fs.writeFileSync(other, '');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, plist(process.execPath, other, home));
+  startedOn(home, other);
   await k.refresh();
   assert.equal(calls.length, 0, 'another app\'s server.cjs that still exists keeps the agent');
   fs.rmSync(other);
@@ -200,6 +207,7 @@ function agentWithStoredKey(answers: { stored: boolean | null; app: boolean | nu
   fs.writeFileSync(secrets, JSON.stringify({ dataApiKey: OLD_KEY, aiApiKey: 'ai' }), { mode: 0o600 });
   fs.mkdirSync(path.dirname(made.file), { recursive: true });
   fs.writeFileSync(made.file, plist(NODE, made.serverFile, made.home));
+  startedOn(made.home, made.serverFile);
   return { ...made, asked, secrets, stored: () => JSON.parse(fs.readFileSync(secrets, 'utf8')) };
 }
 
@@ -347,4 +355,52 @@ test('an agent pointed at new files at an app\'s start gets the changed key too'
   assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
   assert.deepEqual(calls.map((c) => c.args[0]), ['bootout', 'bootstrap']);
   assert.deepEqual(keyAtCall, [KEY, KEY]);
+});
+
+test('after an update, an app start restarts the agent once, since it keeps running the code it loaded', async () => {
+  const { k, calls, file, home, serverFile } = setup({ env: {} });
+  await k.turnOn();
+  const afterOn = calls.length;
+  await k.refresh();
+  assert.equal(calls.length, afterOn, 'turned on with these files: nothing to apply');
+
+  // The update: new code in the agent's folder, and the website's build marker.
+  fs.writeFileSync(path.join(path.dirname(serverFile), 'mcp-plugin.cjs'), 'new code');
+  await k.refresh();
+  assert.deepEqual(calls.slice(afterOn).map((c) => c.args), [['kickstart', '-k', `gui/501/${LABEL}`]]);
+  await k.refresh();
+  assert.equal(calls.length, afterOn + 1, 'once per update');
+  fs.mkdirSync(path.join(path.dirname(serverFile), 'web'));
+  fs.writeFileSync(path.join(path.dirname(serverFile), 'web', 'BUILD-SOURCE.txt'), 'site 2');
+  await k.refresh();
+  assert.equal(calls.length, afterOn + 2, 'a new website build is an update too');
+  assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, serverFile, home), 'the agent itself is not rewritten');
+});
+
+test('an agent started before this was recorded is restarted once at the next app start, whichever app\'s files it runs', async () => {
+  const { k, calls, file, home, serverFile } = setup({ env: {} });
+  const other = path.join(path.dirname(path.dirname(serverFile)), 'other', 'server.cjs');
+  fs.mkdirSync(path.dirname(other));
+  fs.writeFileSync(other, 'the other app');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, plist(NODE, other, home));
+  await k.refresh();
+  await k.refresh();
+  assert.deepEqual(calls.map((c) => c.args[0]), ['kickstart']);
+  assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, other, home), 'still the other app\'s agent');
+  assert.equal(fs.readFileSync(startedFile(home), 'utf8').trim(), codeOf(path.dirname(other)), 'judged by the files the agent runs, not this app\'s');
+});
+
+test('a restart after an update that fails is tried again at the next app start, and secrets.json is left alone', async () => {
+  const { k, calls, file, home, serverFile } = setup({ env: {}, failKickstart: { times: 1 } });
+  const secrets = path.join(home, 'secrets.json');
+  fs.writeFileSync(secrets, JSON.stringify({ dataApiKey: 'kept' }), { mode: 0o600 });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, plist(NODE, serverFile, home));
+  await k.refresh();
+  assert.equal(fs.existsSync(startedFile(home)), false, 'not recorded as started');
+  assert.equal(JSON.parse(fs.readFileSync(secrets, 'utf8')).dataApiKey, 'kept');
+  await k.refresh();
+  assert.deepEqual(calls.map((c) => c.args[0]), ['kickstart', 'kickstart']);
+  assert.equal(fs.readFileSync(startedFile(home), 'utf8').trim(), codeOf(path.dirname(serverFile)));
 });

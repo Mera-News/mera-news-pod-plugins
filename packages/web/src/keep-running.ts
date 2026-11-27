@@ -4,6 +4,7 @@
 // then finds the home locked and only bridges to it. Nothing is installed: it needs a Node.js the
 // person already has, and says how to get one when there is none.
 import { execFile, execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -73,6 +74,21 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const unxml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
 export const logFile = (home: string) => path.join(home, 'logs', 'pod.log');
+
+/** A fingerprint of the code in a server folder. An update changes it, while a running agent keeps the code it loaded. */
+export function codeOf(serverDir: string): string {
+  const hash = createHash('sha256');
+  for (const name of fs.readdirSync(serverDir).filter((n) => n.endsWith('.cjs')).sort()) hash.update(name).update(fs.readFileSync(path.join(serverDir, name)));
+  try {
+    // The website's files are not .cjs; its build marker changes with them.
+    hash.update(fs.readFileSync(path.join(serverDir, 'web', 'BUILD-SOURCE.txt')));
+  } catch {
+    // No website in this folder.
+  }
+  return hash.digest('hex');
+}
+/** The code the agent was last started on, so an app start restarts it once after an update. */
+export const startedFile = (home: string) => path.join(home, 'data', 'plugins', 'web', 'agent-code');
 
 /** The LaunchAgent: no secret in it, so it is an ordinary file in ~/Library/LaunchAgents. */
 export function plist(node: string, serverFile: string, home: string): string {
@@ -161,6 +177,14 @@ export function createKeepRunning(deps: KeepRunningDeps) {
     return (await deps.keyAccepted(stored)) === false && (await deps.keyAccepted(given)) === true ? given : null;
   };
   const saveKey = (key: string) => writeFile(secretsFile, `${JSON.stringify({ ...readSecrets(), dataApiKey: key }, null, 2)}\n`, 0o600);
+  const started = () => {
+    try {
+      return fs.readFileSync(startedFile(deps.home), 'utf8').trim();
+    } catch {
+      return null;
+    }
+  };
+  const noteStarted = (serverFile: string) => writeFile(startedFile(deps.home), `${codeOf(path.dirname(serverFile))}\n`, 0o600);
 
   async function node(): Promise<{ node: NodeFound | null; oldNode: string | null }> {
     const found = await deps.nodes();
@@ -215,6 +239,7 @@ export function createKeepRunning(deps: KeepRunningDeps) {
       fs.rmSync(file, { force: true });
       throw new NewsError('launchd_refused', 'macOS did not start Mera News.', `Try again. If it keeps failing, look at ${logFile(deps.home)}.`);
     }
+    noteStarted(deps.serverFile!);
     return state();
   }
 
@@ -231,7 +256,9 @@ export function createKeepRunning(deps: KeepRunningDeps) {
    * At an app's start: if the agent names a server.cjs that is gone (an update moved the plugin), or
    * a Node.js that is gone, point it at this one and a Node.js found now, and start it again. One that still exists is left alone, so two apps
    * sharing the home never take the agent from each other. The agent reads its key only from
-   * secrets.json, so a key changed in the app's settings is saved there and the agent starts again. Never throws.
+   * secrets.json, so a key changed in the app's settings is saved there and the agent starts again.
+   * An update replaces the agent's files while it keeps running the code it loaded, so it is also
+   * started again, once, when those files are not the ones it was last started on. Never throws.
    */
   async function refresh(): Promise<void> {
     try {
@@ -242,15 +269,16 @@ export function createKeepRunning(deps: KeepRunningDeps) {
       if (key) saveKey(key);
       const named = /<string>([^<]*server\.cjs)<\/string>/.exec(text)?.[1];
       if (named && fs.existsSync(unxml(named)) && !broken(text)) {
-        if (!key) return;
+        if (!key && started() === codeOf(path.dirname(unxml(named)))) return;
         try {
           deps.launchctl(['kickstart', '-k', job]);
         } catch (e) {
           // The saved key is what tells the next start there is nothing to do, so put the old file back: the next start then tries again.
-          if (before === null) fs.rmSync(secretsFile, { force: true });
-          else writeFile(secretsFile, before, 0o600);
+          if (key && before === null) fs.rmSync(secretsFile, { force: true });
+          else if (key) writeFile(secretsFile, before!, 0o600);
           throw e;
         }
+        noteStarted(unxml(named));
         return;
       }
       const { node: found } = await node();
@@ -262,6 +290,7 @@ export function createKeepRunning(deps: KeepRunningDeps) {
         // Not loaded.
       }
       deps.launchctl(['bootstrap', `gui/${deps.uid}`, file]);
+      noteStarted(deps.serverFile!);
     } catch {
       // The next start tries again.
     }
