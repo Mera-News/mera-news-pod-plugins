@@ -5,14 +5,15 @@ import { run } from './helpers';
 
 const CARDED = ['get_suggestions', 'top_stories', 'news_for_profile', 'search_news', 'latest_news'];
 
-test('card: the news tools name the card, other tools do not, and the card is a self-contained page', async () => {
+test('card: the news tools name the card under both keys the MCP Apps SDK sets, other tools do not, and the card is a self-contained page', async () => {
   const r = await run();
   try {
     const c = await r.client();
     const { tools } = await c.listTools();
     for (const t of tools) {
-      const uri = (t._meta as { ui?: { resourceUri?: string } } | undefined)?.ui?.resourceUri;
-      assert.equal(uri, CARDED.includes(t.name) ? CARD_URI : undefined, t.name);
+      const meta = t._meta as { ui?: { resourceUri?: string }; 'ui/resourceUri'?: string } | undefined;
+      assert.equal(meta?.ui?.resourceUri, CARDED.includes(t.name) ? CARD_URI : undefined, t.name);
+      assert.equal(meta?.['ui/resourceUri'], CARDED.includes(t.name) ? CARD_URI : undefined, `${t.name}, the flat key`);
     }
     const read = await c.readResource({ uri: CARD_URI });
     const page = read.contents[0] as { mimeType?: string; text?: string };
@@ -61,7 +62,7 @@ test('card: every story keeps its publisher and link; reports, groups and levels
       { title: 'Two', link: 'https://c.example/2', publisher: 'C' },
     ],
   });
-  assert.deepEqual(news[0].stories.map((s) => [s.publisher, s.others.map((o) => o.publisher)]), [['A', ['B']], ['C', []]]);
+  assert.deepEqual(news[0].stories.map((s) => [s.publisher, s.others.map((o) => o.publisher), s.more]), [['A', ['B'], '+1 report'], ['C', [], undefined]]);
 
   const profile = sectionsOf({
     toJudge: [{ fact: 'Lives in Delhi', stories: [{ title: 'Smog', link: 'https://d.example/1', publisher: 'D' }] }],
@@ -72,19 +73,23 @@ test('card: every story keeps its publisher and link; reports, groups and levels
   assert.deepEqual(sectionsOf(null), []);
 });
 
-test('card: a top_stories list item says how many reports and publishers it has, and a story of one says nothing', () => {
+test('card: every story names its publisher and how many other publications reported it, as its show line does', () => {
   const [top] = sectionsOf({
     scope: 'world',
     stories: [
-      { id: 'a', title: 'Storm closes Schiphol runways', link: 'https://nos.example/a', publisher: 'NOS', reportCount: 12, publisherCount: 9 },
+      { id: 'a', title: 'Storm closes Schiphol runways', link: 'https://nos.example/a', publisher: 'NOS', reportCount: 12, publisherCount: 31 },
       { id: 'b', title: 'Two reports', link: 'https://b.example/b', publisher: 'B', reportCount: 2, publisherCount: 1 },
       { id: 'c', title: 'Old server', link: 'https://c.example/c', publisher: 'C', reportCount: 3 },
       { id: 'd', title: 'Alone', link: 'https://d.example/d', publisher: 'D', reportCount: 1, publisherCount: 1 },
+      { id: 'e', title: 'Two publishers', link: 'https://e.example/e', publisher: 'E', reportCount: 2, publisherCount: 2 },
     ],
   });
   assert.equal(top.heading, 'Top stories');
-  assert.deepEqual(top.stories.map((s) => s.coverage), ['12 reports from 9 publishers', '2 reports from 1 publisher', '3 reports', undefined]);
-  assert.deepEqual(top.stories.map((s) => s.others), [[], [], [], []]);
+  assert.deepEqual(top.stories.map((s) => [s.publisher, s.more]), [['NOS', '+30 publications'], ['B', undefined], ['C', '+2 reports'], ['D', undefined], ['E', '+1 publication']]);
+  assert.deepEqual(top.stories.map((s) => s.others), [[], [], [], [], []]);
+  const [profile] = sectionsOf({ toJudge: [{ fact: 'f', stories: [{ title: 'S', link: 'https://s.example/1', publisher: 'S', reports: 4 }] }] });
+  assert.equal(profile.stories[0].more, '+3 reports');
+  assert.match(cardHtml, /meta\.append\(el\('span', 'more', st\.more\)\)/, 'drawn beside the publisher');
 });
 
 test('card: the list scrolls inside a card at most 560 px high, under a header that counts the stories', () => {
@@ -94,8 +99,9 @@ test('card: the list scrolls inside a card at most 560 px high, under a header t
   assert.match(cardHtml, /' stories'/);
 });
 
-test('card: the page script parses', () => {
+test('card: the page script parses, and asks ui/initialize with exactly appInfo, appCapabilities and the protocol version', () => {
   const script = /<script>([\s\S]*)<\/script>/.exec(cardHtml)?.[1] ?? '';
-  assert.ok(script.includes("'ui/initialize'"));
+  assert.ok(script.includes("request('ui/initialize', { appInfo: info, appCapabilities: { availableDisplayModes: ['inline'] }, protocolVersion: '2026-01-26' })"));
+  assert.doesNotMatch(script, /clientInfo|capabilities: \{\}/);
   assert.doesNotThrow(() => new Function(script));
 });

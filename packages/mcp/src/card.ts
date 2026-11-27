@@ -17,8 +17,8 @@ export interface CardStory {
   reason?: string;
   /** Other publishers' reports of the same story. */
   others: { publisher: string; link: string }[];
-  /** A top_stories list item: how many reports and publishers the story has, such as "12 reports from 9 publishers". */
-  coverage?: string;
+  /** How many others reported it, as its show line says: "+8 publications", or "+2 reports" when the publishers are not known. */
+  more?: string;
 }
 export interface CardSection {
   heading: string;
@@ -33,6 +33,11 @@ export function sectionsOf(reply: unknown): CardSection[] {
   const web = (u: unknown) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : '');
   const str = (s: unknown) => (typeof s === 'string' ? s : '');
   const LEVELS = ['emergency', 'high', 'medium', 'low'];
+  // The same rule as the show line: other publications when known, else other reports.
+  const plus = (out: CardStory, publications: number, reports: number) => {
+    const [n, word] = publications > 0 ? [publications, 'publication'] : [reports, 'report'];
+    if (n > 0) out.more = `+${n} ${word}${n === 1 ? '' : 's'}`;
+  };
   const story = (s: any, others: { publisher: string; link: string }[] = []): CardStory[] => {
     const link = web(s?.link ?? s?.url);
     if (!link) return [];
@@ -41,9 +46,9 @@ export function sectionsOf(reply: unknown): CardSection[] {
     if (str(s.publishedAt)) out.publishedAt = str(s.publishedAt);
     if (str(s.level)) out.level = str(s.level);
     if (str(s.reason)) out.reason = str(s.reason);
-    const reports = typeof s.reportCount === 'number' ? s.reportCount : 0;
     const publishers = typeof s.publisherCount === 'number' ? s.publisherCount : 0;
-    if (reports > 1) out.coverage = `${reports} reports` + (publishers > 0 ? ` from ${publishers} ${publishers === 1 ? 'publisher' : 'publishers'}` : '');
+    const reports = typeof s.reportCount === 'number' ? s.reportCount : typeof s.reports === 'number' ? s.reports : 0;
+    plus(out, publishers > 1 ? publishers - 1 : 0, publishers > 0 ? 0 : reports - 1);
     return [out];
   };
   const reportsOf = (s: any) =>
@@ -78,6 +83,7 @@ export function sectionsOf(reply: unknown): CardSection[] {
       const lead = key ? seen.get(key) : undefined;
       if (lead && web(s?.link)) {
         lead.others.push({ publisher: str(s.publisher), link: web(s.link) });
+        plus(lead, 0, lead.others.length);
         continue;
       }
       const [made] = story(s);
@@ -111,7 +117,8 @@ a.title{display:block;color:var(--text);font-weight:600;text-decoration:none;fon
 a.title:hover{text-decoration:underline}
 .en{color:var(--muted);font-size:13px;margin-top:2px}
 .reason{margin-top:6px}
-.others,.coverage{margin-top:6px;font-size:13px;color:var(--muted)}
+.others{margin-top:6px;font-size:13px;color:var(--muted)}
+.more{font-weight:600;color:var(--text)}
 .others a{color:inherit}
 .read{display:inline-block;margin-top:8px;font-size:13px;font-weight:600;color:var(--accent);text-decoration:none}
 .foot{font-size:12px;color:var(--muted)}
@@ -164,13 +171,13 @@ const draw = (result) => {
       const li = el('li');
       const meta = el('div', 'meta');
       meta.append(el('span', 'pub', st.publisher || new URL(st.link).hostname));
+      if (st.more) meta.append(el('span', 'more', st.more));
       const when = st.publishedAt ? ago(st.publishedAt) : '';
       if (when) meta.append(el('span', '', when));
       if (st.level && LEVEL[st.level]) meta.append(el('span', 'level ' + st.level, LEVEL[st.level]));
       li.append(meta, link('title', st.link, st.title || st.titleEn || st.link));
       if (st.titleEn && st.titleEn !== st.title) li.append(el('div', 'en', st.titleEn));
       if (st.reason) li.append(el('div', 'reason', st.reason));
-      if (st.coverage) li.append(el('div', 'coverage', st.coverage));
       if (st.others.length) {
         const o = el('div', 'others', 'Also reported by ');
         st.others.forEach((r, i) => { if (i) o.append(', '); o.append(link('', r.link, r.publisher || new URL(r.link).hostname)); });
@@ -193,7 +200,7 @@ window.addEventListener('message', (e) => {
 });
 new ResizeObserver(() => notify('ui/notifications/size-changed', { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })).observe(document.documentElement);
 const info = { name: 'mera-news-card', version: '1.0.0' };
-request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: info, clientInfo: info, appCapabilities: { availableDisplayModes: ['inline'] }, capabilities: {} })
+request('ui/initialize', { appInfo: info, appCapabilities: { availableDisplayModes: ['inline'] }, protocolVersion: '2026-01-26' })
   .then((r) => { applyContext(r && r.hostContext); notify('ui/notifications/initialized', {}); })
   .catch(() => notify('ui/notifications/initialized', {}));
 `;
