@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { atLeast, createKeepRunning, LABEL, plist, type KeepRunningDeps, type NodeFound } from '../src/keep-running';
+import { atLeast, createKeepRunning, dataServerTakesKey, LABEL, plist, type KeepRunningDeps, type NodeFound } from '../src/keep-running';
 
 const KEY = 'news-key-from-the-app-0123456789';
 // A Node.js that exists on every machine the tests run on: an agent naming a missing one is broken.
@@ -31,6 +33,8 @@ function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBoots
       if (args[0] === 'bootstrap' && over.failBootstrap) throw new Error('5: Input/output error');
     },
     env: { MERA_POD_DATA_API_KEY: KEY },
+    // Unless a test says otherwise, the data server cannot be asked.
+    keyAccepted: async () => null,
     ...over,
   };
   return { k: createKeepRunning(deps), deps, calls, home, serverFile, file: path.join(deps.agentsDir, `${LABEL}.plist`) };
@@ -130,7 +134,8 @@ test('a LaunchAgent macOS refuses is removed again', async () => {
 });
 
 test('at an app\'s start, an agent whose server.cjs is gone is pointed at this one; one that exists is left alone', async () => {
-  const { k, calls, file, home, serverFile } = setup();
+  // No key from the app: this is about the agent's files only.
+  const { k, calls, file, home, serverFile } = setup({ env: {} });
   await k.refresh();
   assert.equal(calls.length, 0, 'no agent, nothing to do');
   const other = path.join(path.dirname(path.dirname(serverFile)), 'other', 'server.cjs');
@@ -176,4 +181,108 @@ test('an agent whose Node.js is gone is reported as broken, pointed at a Node.js
   fs.writeFileSync(file, plist(gone, serverFile, home));
   await k.turnOn();
   assert.equal(fs.readFileSync(file, 'utf8'), plist(NODE, serverFile, home));
+});
+
+const OLD_KEY = 'a-key-that-was-turned-off-0000';
+
+function agentWithStoredKey(answers: { stored: boolean | null; app: boolean | null }) {
+  const asked: string[] = [];
+  const made = setup({ keyAccepted: async (key) => (asked.push(key), key === KEY ? answers.app : answers.stored) });
+  const secrets = path.join(made.home, 'secrets.json');
+  fs.writeFileSync(secrets, JSON.stringify({ dataApiKey: OLD_KEY, aiApiKey: 'ai' }), { mode: 0o600 });
+  fs.mkdirSync(path.dirname(made.file), { recursive: true });
+  fs.writeFileSync(made.file, plist(NODE, made.serverFile, made.home));
+  return { ...made, asked, secrets, stored: () => JSON.parse(fs.readFileSync(secrets, 'utf8')) };
+}
+
+test('at an app\'s start, a key the data server refuses is replaced by the app\'s key it accepts, and the agent starts again', async () => {
+  const { k, calls, asked, secrets, stored } = agentWithStoredKey({ stored: false, app: true });
+  await k.refresh();
+  assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
+  assert.equal(fs.statSync(secrets).mode & 0o777, 0o600);
+  assert.deepEqual(calls, [{ args: ['kickstart', '-k', 'gui/501/news.mera.pod'], later: false }]);
+  assert.deepEqual(asked, [OLD_KEY, KEY]);
+  // The keys now match: the data server is not asked and nothing starts again.
+  await k.refresh();
+  assert.equal(calls.length, 1);
+  assert.equal(asked.length, 2);
+});
+
+test('at an app\'s start, an agent whose secrets.json has no key gets the app\'s key without asking the data server', async () => {
+  const { k, calls, asked, secrets, stored } = agentWithStoredKey({ stored: false, app: false });
+  fs.writeFileSync(secrets, JSON.stringify({ aiApiKey: 'ai' }), { mode: 0o600 });
+  await k.refresh();
+  assert.deepEqual(stored(), { aiApiKey: 'ai', dataApiKey: KEY });
+  assert.deepEqual(calls.map((c) => c.args), [['kickstart', '-k', 'gui/501/news.mera.pod']]);
+  assert.equal(asked.length, 0);
+});
+
+test('a key in secrets.json that works or cannot be checked is never replaced, nor is any key by one the data server refuses', async () => {
+  // Two apps can share a home: one still holding an old key must not break a pod that works.
+  for (const answers of [
+    { stored: true, app: true },
+    { stored: null, app: true },
+    { stored: false, app: false },
+    { stored: false, app: null },
+  ]) {
+    const { k, calls, stored } = agentWithStoredKey(answers);
+    await k.refresh();
+    assert.deepEqual(stored(), { dataApiKey: OLD_KEY, aiApiKey: 'ai' }, JSON.stringify(answers));
+    assert.equal(calls.length, 0, JSON.stringify(answers));
+  }
+  // A key that works is not even compared with the app's.
+  const { k, asked } = agentWithStoredKey({ stored: true, app: true });
+  await k.refresh();
+  assert.deepEqual(asked, [OLD_KEY]);
+});
+
+test('with no agent, an app\'s start leaves secrets.json alone, and turning it on replaces a refused key', async () => {
+  const { k, calls, file, stored } = agentWithStoredKey({ stored: false, app: true });
+  fs.rmSync(file);
+  await k.refresh();
+  assert.deepEqual(stored(), { dataApiKey: OLD_KEY, aiApiKey: 'ai' });
+  assert.equal(calls.length, 0);
+  await k.turnOn();
+  assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
+  assert.deepEqual(calls.map((c) => c.args[0]), ['bootout', 'bootstrap']);
+});
+
+test('asking the data server about a key: refused, accepted, or not known', async () => {
+  const seen: { url?: string; key?: string | string[]; body: string }[] = [];
+  let answer: { status: number; body: string } = { status: 200, body: '{"data":{"recentArticleCount":3}}' };
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      seen.push({ url: req.url, key: req.headers['x-api-key'], body });
+      res.writeHead(answer.status, { 'content-type': 'application/json' }).end(answer.body);
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keep-running-key-'));
+  const results: (boolean | null)[] = [];
+  try {
+    fs.writeFileSync(path.join(root, 'pod.json'), JSON.stringify({ dataServer: { url: `${origin}/` } }));
+    results.push(await dataServerTakesKey(root, KEY));
+    answer = { status: 200, body: '{"errors":[{"message":"Invalid API key","extensions":{"code":"UNAUTHENTICATED"}}],"data":null}' };
+    results.push(await dataServerTakesKey(root, KEY));
+    answer = { status: 401, body: '' };
+    results.push(await dataServerTakesKey(root, KEY));
+    // Anything else says nothing about the key: a server error, another GraphQL error, no answer, no config.
+    answer = { status: 503, body: '' };
+    results.push(await dataServerTakesKey(root, KEY));
+    answer = { status: 200, body: '{"errors":[{"message":"Not ready","extensions":{"code":"INDEX_NOT_READY"}}]}' };
+    results.push(await dataServerTakesKey(root, KEY));
+    fs.writeFileSync(path.join(root, 'pod.json'), JSON.stringify({ dataServer: { url: `${origin}/api/graphql` } }));
+    answer = { status: 200, body: '{"data":{"recentArticleCount":0}}' };
+    results.push(await dataServerTakesKey(root, KEY));
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+  results.push(await dataServerTakesKey(root, KEY));
+  results.push(await dataServerTakesKey(path.join(root, 'no-such-home'), KEY));
+  assert.deepEqual(results, [true, false, false, null, null, true, null, null]);
+  assert.deepEqual(seen.map((s) => s.url), ['/graphql', '/graphql', '/graphql', '/graphql', '/graphql', '/api/graphql']);
+  assert.ok(seen.every((s) => s.key === KEY && JSON.parse(s.body).query.includes('recentArticleCount')));
 });

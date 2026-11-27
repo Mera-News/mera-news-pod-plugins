@@ -33,6 +33,31 @@ export interface KeepRunningDeps {
   /** `later` runs it a second from now in its own process, so a reply can leave before launchd stops this pod. */
   launchctl(args: string[], later?: boolean): void;
   env: NodeJS.ProcessEnv;
+  /** Whether this home's data server takes the key: false only for a clear refusal, null when that cannot be told. */
+  keyAccepted(key: string): Promise<boolean | null>;
+}
+
+const KEY_CHECK_MS = 5000;
+
+/** Asks the data server named in this home's pod.json one small question with the key. A refusal is HTTP 401 or 403, or GraphQL's UNAUTHENTICATED. */
+export async function dataServerTakesKey(home: string, key: string): Promise<boolean | null> {
+  try {
+    const url = new URL(JSON.parse(fs.readFileSync(path.join(home, 'pod.json'), 'utf8')).dataServer.url);
+    const dataPath = url.pathname.replace(/\/+$/, '');
+    const res = await fetch(`${url.origin}${dataPath.endsWith('/graphql') ? dataPath : `${dataPath}/graphql`}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key },
+      body: JSON.stringify({ query: '{ recentArticleCount }' }),
+      signal: AbortSignal.timeout(KEY_CHECK_MS),
+    });
+    if (res.status === 401 || res.status === 403) return false;
+    if (!res.ok) return null;
+    const body = (await res.json()) as { errors?: { extensions?: { code?: string } }[] };
+    if (!body.errors?.length) return true;
+    return body.errors.some((e) => e.extensions?.code === 'UNAUTHENTICATED') ? false : null;
+  } catch {
+    return null;
+  }
 }
 
 export const atLeast = (version: string, min = MIN_NODE) => {
@@ -120,6 +145,21 @@ export function createKeepRunning(deps: KeepRunningDeps) {
     return !!given && !readSecrets().dataApiKey ? given : null;
   };
 
+  /**
+   * The key to put in secrets.json, or null. The app's key is saved when the pod has none, or when
+   * the data server refuses the pod's key and accepts the app's (a key changed in the app's settings).
+   * Two apps can share a home, so a key that works, or cannot be checked, is never replaced.
+   */
+  const keyToSave = async (): Promise<string | null> => {
+    const given = deps.env.MERA_POD_DATA_API_KEY;
+    const stored = readSecrets().dataApiKey;
+    if (!given || given === stored) return null;
+    if (!stored) return given;
+    if (typeof stored !== 'string') return null;
+    return (await deps.keyAccepted(stored)) === false && (await deps.keyAccepted(given)) === true ? given : null;
+  };
+  const saveKey = (key: string) => writeFile(secretsFile, `${JSON.stringify({ ...readSecrets(), dataApiKey: key }, null, 2)}\n`, 0o600);
+
   async function node(): Promise<{ node: NodeFound | null; oldNode: string | null }> {
     const found = await deps.nodes();
     return { node: found.find((n) => atLeast(n.version)) ?? null, oldNode: found[0]?.version ?? null };
@@ -157,8 +197,8 @@ export function createKeepRunning(deps: KeepRunningDeps) {
     if (current !== null && !broken(current)) return state();
     const { node: found } = await node();
     if (!found) throw new NewsError('no_node', `Mera News needs Node.js ${MIN_NODE.replace(/\.0$/, '')} or newer on this Mac to keep running on its own.`, 'Install it, then try again.');
-    const key = keyToCopy();
-    if (key) writeFile(secretsFile, `${JSON.stringify({ ...readSecrets(), dataApiKey: key }, null, 2)}\n`, 0o600);
+    const key = await keyToSave();
+    if (key) saveKey(key);
     fs.mkdirSync(path.dirname(logFile(deps.home)), { recursive: true, mode: 0o700 });
     writeFile(file, plist(found.path, deps.serverFile!, deps.home), 0o644);
     // A job left loaded without its file would refuse the new one.
@@ -188,14 +228,20 @@ export function createKeepRunning(deps: KeepRunningDeps) {
   /**
    * At an app's start: if the agent names a server.cjs that is gone (an update moved the plugin), or
    * a Node.js that is gone, point it at this one and a Node.js found now, and start it again. One that still exists is left alone, so two apps
-   * sharing the home never take the agent from each other. Never throws.
+   * sharing the home never take the agent from each other. The agent reads its key only from
+   * secrets.json, so a key changed in the app's settings is saved there and the agent starts again. Never throws.
    */
   async function refresh(): Promise<void> {
     try {
       const text = read();
       if (supported !== 'yes' || text === null || !ours(text)) return;
+      const key = await keyToSave();
+      if (key) saveKey(key);
       const named = /<string>([^<]*server\.cjs)<\/string>/.exec(text)?.[1];
-      if (named && fs.existsSync(unxml(named)) && !broken(text)) return;
+      if (named && fs.existsSync(unxml(named)) && !broken(text)) {
+        if (key) deps.launchctl(['kickstart', '-k', job]);
+        return;
+      }
       const { node: found } = await node();
       if (!found) return;
       writeFile(file, plist(found.path, deps.serverFile!, deps.home), 0o644);
@@ -251,5 +297,6 @@ export function systemDeps(home: string, serverFile: string): KeepRunningDeps {
       else execFileSync('/bin/launchctl', args, { stdio: 'ignore', timeout: 15_000 });
     },
     env: process.env,
+    keyAccepted: (key) => dataServerTakesKey(home, key),
   };
 }
