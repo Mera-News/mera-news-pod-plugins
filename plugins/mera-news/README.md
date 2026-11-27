@@ -137,8 +137,8 @@ It adds a login item, `~/Library/LaunchAgents/news.mera.pod.plist`, that runs th
 `server/server.cjs serve` on the same `~/.mera-news-pod` folder, with its log in
 `~/.mera-news-pod/logs/pod.log`. Your news key is saved in `~/.mera-news-pod/secrets.json` if it is
 not there yet, because Claude is not there to hand it over. If you later paste a new key in the
-plugin's settings and the news server refuses the saved one, the new key replaces it the next time
-your AI app starts. When you next open Claude, the plugin
+plugin's settings, it replaces the saved one the next time your AI app starts, but only when the
+news server refuses the saved key and accepts the new one. When you next open Claude, the plugin
 connects to that pod instead of starting its own. Turning the setting off removes the login item and
 stops that pod. The Mac must be awake for Mera News to run. Updates still arrive through your AI
 app's extension install for now. Details:

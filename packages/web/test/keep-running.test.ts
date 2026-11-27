@@ -12,7 +12,7 @@ const KEY = 'news-key-from-the-app-0123456789';
 // A Node.js that exists on every machine the tests run on: an agent naming a missing one is broken.
 const NODE = process.execPath;
 
-function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBootstrap?: boolean } = {}) {
+function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBootstrap?: boolean; failKickstart?: { times: number } } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keep-running-'));
   const home = path.join(root, 'home & co');
   fs.mkdirSync(home);
@@ -20,6 +20,8 @@ function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBoots
   fs.mkdirSync(path.dirname(serverFile));
   fs.writeFileSync(serverFile, '');
   const calls: { args: string[]; later: boolean }[] = [];
+  // The news key in secrets.json at the moment of each launchctl call.
+  const keyAtCall: (string | undefined)[] = [];
   const deps: KeepRunningDeps = {
     home,
     serverFile,
@@ -30,14 +32,20 @@ function setup(over: Partial<KeepRunningDeps> & { found?: NodeFound[]; failBoots
     hasBrew: () => true,
     launchctl(args, later = false) {
       calls.push({ args, later });
+      try {
+        keyAtCall.push(JSON.parse(fs.readFileSync(path.join(home, 'secrets.json'), 'utf8')).dataApiKey);
+      } catch {
+        keyAtCall.push(undefined);
+      }
       if (args[0] === 'bootstrap' && over.failBootstrap) throw new Error('5: Input/output error');
+      if (args[0] === 'kickstart' && over.failKickstart && over.failKickstart.times-- > 0) throw new Error('3: No such process');
     },
     env: { MERA_POD_DATA_API_KEY: KEY },
     // Unless a test says otherwise, the data server cannot be asked.
     keyAccepted: async () => null,
     ...over,
   };
-  return { k: createKeepRunning(deps), deps, calls, home, serverFile, file: path.join(deps.agentsDir, `${LABEL}.plist`) };
+  return { k: createKeepRunning(deps), deps, calls, keyAtCall, home, serverFile, file: path.join(deps.agentsDir, `${LABEL}.plist`) };
 }
 
 test('Node versions: 22.13 is the floor', () => {
@@ -185,9 +193,9 @@ test('an agent whose Node.js is gone is reported as broken, pointed at a Node.js
 
 const OLD_KEY = 'a-key-that-was-turned-off-0000';
 
-function agentWithStoredKey(answers: { stored: boolean | null; app: boolean | null }) {
+function agentWithStoredKey(answers: { stored: boolean | null; app: boolean | null }, over: Parameters<typeof setup>[0] = {}) {
   const asked: string[] = [];
-  const made = setup({ keyAccepted: async (key) => (asked.push(key), key === KEY ? answers.app : answers.stored) });
+  const made = setup({ keyAccepted: async (key) => (asked.push(key), key === KEY ? answers.app : answers.stored), ...over });
   const secrets = path.join(made.home, 'secrets.json');
   fs.writeFileSync(secrets, JSON.stringify({ dataApiKey: OLD_KEY, aiApiKey: 'ai' }), { mode: 0o600 });
   fs.mkdirSync(path.dirname(made.file), { recursive: true });
@@ -196,11 +204,12 @@ function agentWithStoredKey(answers: { stored: boolean | null; app: boolean | nu
 }
 
 test('at an app\'s start, a key the data server refuses is replaced by the app\'s key it accepts, and the agent starts again', async () => {
-  const { k, calls, asked, secrets, stored } = agentWithStoredKey({ stored: false, app: true });
+  const { k, calls, keyAtCall, asked, secrets, stored } = agentWithStoredKey({ stored: false, app: true });
   await k.refresh();
   assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
   assert.equal(fs.statSync(secrets).mode & 0o777, 0o600);
   assert.deepEqual(calls, [{ args: ['kickstart', '-k', 'gui/501/news.mera.pod'], later: false }]);
+  assert.deepEqual(keyAtCall, [KEY], 'the key is saved before the agent starts again, since it reads the file at its start');
   assert.deepEqual(asked, [OLD_KEY, KEY]);
   // The keys now match: the data server is not asked and nothing starts again.
   await k.refresh();
@@ -285,4 +294,57 @@ test('asking the data server about a key: refused, accepted, or not known', asyn
   assert.deepEqual(results, [true, false, false, null, null, true, null, null]);
   assert.deepEqual(seen.map((s) => s.url), ['/graphql', '/graphql', '/graphql', '/graphql', '/graphql', '/api/graphql']);
   assert.ok(seen.every((s) => s.key === KEY && JSON.parse(s.body).query.includes('recentArticleCount')));
+});
+
+test('asking the data server about a key never follows a redirect, so the key reaches no other address', async () => {
+  let elsewhere = 0;
+  const other = http.createServer((_req, res) => {
+    elsewhere++;
+    res.writeHead(200, { 'content-type': 'application/json' }).end('{"data":{"recentArticleCount":1}}');
+  });
+  await new Promise<void>((r) => other.listen(0, '127.0.0.1', r));
+  const server = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(307, { location: `http://127.0.0.1:${(other.address() as AddressInfo).port}/graphql` }).end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keep-running-key-'));
+  fs.writeFileSync(path.join(root, 'pod.json'), JSON.stringify({ dataServer: { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` } }));
+  let result: boolean | null;
+  try {
+    result = await dataServerTakesKey(root, KEY);
+  } finally {
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => other.close(r));
+  }
+  assert.equal(result, null);
+  assert.equal(elsewhere, 0);
+});
+
+test('a restart that fails leaves the old key in place, so the next app start tries again', async () => {
+  const { k, calls, secrets, stored } = agentWithStoredKey({ stored: false, app: true }, { failKickstart: { times: 1 } });
+  await k.refresh();
+  assert.deepEqual(stored(), { dataApiKey: OLD_KEY, aiApiKey: 'ai' });
+  assert.equal(fs.statSync(secrets).mode & 0o777, 0o600);
+  await k.refresh();
+  assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
+  assert.deepEqual(calls.map((c) => c.args[0]), ['kickstart', 'kickstart']);
+  // With no secrets.json before, a failed restart leaves none behind.
+  const none = setup({ failKickstart: { times: 1 } });
+  fs.mkdirSync(path.dirname(none.file), { recursive: true });
+  fs.writeFileSync(none.file, plist(NODE, none.serverFile, none.home));
+  await none.k.refresh();
+  assert.ok(!fs.existsSync(path.join(none.home, 'secrets.json')));
+  await none.k.refresh();
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(none.home, 'secrets.json'), 'utf8')), { dataApiKey: KEY });
+});
+
+test('an agent pointed at new files at an app\'s start gets the changed key too', async () => {
+  const { k, calls, keyAtCall, file, home, serverFile, stored } = agentWithStoredKey({ stored: false, app: true });
+  // An update moved the plugin: the agent names a server.cjs that is gone.
+  fs.writeFileSync(file, plist(NODE, path.join(path.dirname(serverFile), 'gone', 'server.cjs'), home));
+  await k.refresh();
+  assert.deepEqual(stored(), { dataApiKey: KEY, aiApiKey: 'ai' });
+  assert.deepEqual(calls.map((c) => c.args[0]), ['bootout', 'bootstrap']);
+  assert.deepEqual(keyAtCall, [KEY, KEY]);
 });

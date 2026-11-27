@@ -48,6 +48,8 @@ export async function dataServerTakesKey(home: string, key: string): Promise<boo
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key },
       body: JSON.stringify({ query: '{ recentArticleCount }' }),
+      // A redirect would carry the key to another address.
+      redirect: 'error',
       signal: AbortSignal.timeout(KEY_CHECK_MS),
     });
     if (res.status === 401 || res.status === 403) return false;
@@ -236,10 +238,19 @@ export function createKeepRunning(deps: KeepRunningDeps) {
       const text = read();
       if (supported !== 'yes' || text === null || !ours(text)) return;
       const key = await keyToSave();
+      const before = key && fs.existsSync(secretsFile) ? fs.readFileSync(secretsFile, 'utf8') : null;
       if (key) saveKey(key);
       const named = /<string>([^<]*server\.cjs)<\/string>/.exec(text)?.[1];
       if (named && fs.existsSync(unxml(named)) && !broken(text)) {
-        if (key) deps.launchctl(['kickstart', '-k', job]);
+        if (!key) return;
+        try {
+          deps.launchctl(['kickstart', '-k', job]);
+        } catch (e) {
+          // The saved key is what tells the next start there is nothing to do, so put the old file back: the next start then tries again.
+          if (before === null) fs.rmSync(secretsFile, { force: true });
+          else writeFile(secretsFile, before, 0o600);
+          throw e;
+        }
         return;
       }
       const { node: found } = await node();

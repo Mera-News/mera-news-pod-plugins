@@ -66,8 +66,9 @@ name, or turning phone access off, removes every paired phone.
 
 You > Keep Mera News running adds a login item, so the pod runs without the AI app. It needs Node.js
 22.13 or newer, which Mera News does not install for you. That pod reads its news key from
-`secrets.json`: the app's key is saved there when there is none, and replaces a saved key the news
-server refuses the next time the app starts. Updates still arrive through the AI app's extension
+`secrets.json`. The app's key is saved there when there is none. A key you change in the app's
+settings replaces the saved one at the app's next start, but only when the news server refuses the
+saved key and accepts the new one. Updates still arrive through the AI app's extension
 install for now.
 
 ## In pod.json
