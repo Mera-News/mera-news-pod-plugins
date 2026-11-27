@@ -6,7 +6,7 @@ import { DIGEST_FILE, HINT_FILE, hintOf, isDue, lastMoment, MISSED_AFTER_MS, rea
 import { CARD_MIME, CARD_TOOLS, CARD_URI, cardHtml } from './card';
 import { siteLink } from './link';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
-import { descriptions, instructions, newsOnlyLine, prompts } from './text';
+import { descriptions, instructions, newsOnlyLine, prompts, showAsGiven } from './text';
 
 const statement = z.string().min(1).max(300);
 const statements = z.array(z.union([statement, z.object({ statement, topics: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional() })])).min(1).max(10);
@@ -446,7 +446,7 @@ export function buildServer(ctx: McpContext): McpServer {
     );
     const stories = out.flat();
     const cursor = (p: Page['topHeadlinesForCountry']) => (p.pageInfo.hasNextPage && p.pageInfo.endCursor ? { nextCursor: p.pageInfo.endCursor } : {});
-    const scope = { scope: country ?? 'world', windowHours: 24 };
+    const scope = { scope: country ?? 'world', windowHours: 24, show: showAsGiven };
     const { kept, cut } = fit(stories, (k, c) => ({ ...scope, summary: summary(k), stories: k, ...(c ? { truncated: true, nextCursor: '' } : cursor(got)) }), estimate);
     if (!cut) return ok({ ...scope, summary: summary(kept), stories: kept, ...cursor(got) }, estimate);
     // The server's cursor ends its whole page, so ask again for only the stories that fit: its cursor then ends there.

@@ -73,6 +73,8 @@ test('top_stories: the world by default, each story with its report count, every
   const body = json(res);
   assert.deepEqual(body.summary, { stories: 2, reports: 4, publishers: 3, languages: 3 });
   assert.equal(body.scope, 'world');
+  // The reply itself says how to show it, and the description no longer claims an order by report count.
+  assert.equal(body.show, 'Show every story below in this order, each headline word for word or translated, with its exact reportCount when that is more than 1. Add no detail of your own.');
   assert.equal(body.nextCursor, 'solo');
   const [a, solo] = body.stories;
   assert.equal(a.title, 'Titel a');

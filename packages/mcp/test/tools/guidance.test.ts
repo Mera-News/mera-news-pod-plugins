@@ -15,6 +15,8 @@ test('the instructions give the copyright answer word for word, keep news to Mer
   assert.match(instructions, /After every news answer, offer the next steps in one short line: top stories in the world, top stories in the person's countries \(from the places in their facts\), another country, everything left out, and the website as "Open in Mera News"\./);
   assert.match(instructions, /read every page, passing nextCursor as after, before you pick or answer\. Judge every story in toJudge with rate_stories/);
   assert.match(instructions, /put the summary numbers on top/);
+  assert.doesNotMatch(descriptions.top_stories, /most reported first/);
+  assert.match(descriptions.top_stories, /in the order Mera News ranks them, which is the order the Mera News app shows\. Show them in that order\./);
   assert.match(prompts.daily_digest.text, /read every page\. Judge every story in toJudge with rate_stories\. Show the summary numbers first/);
   assert.match(prompts.daily_digest.text, /then everything left out/);
   for (const text of [instructions, ...Object.values(descriptions), ...Object.values(prompts).map((p) => p.text)]) assert.doesNotMatch(text, /—|–/);
