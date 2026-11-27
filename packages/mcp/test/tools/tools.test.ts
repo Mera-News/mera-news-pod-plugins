@@ -70,7 +70,7 @@ test('each tool passes the service reply through in its documented shape', async
     assert.deepEqual(asked, { limit: 10 });
     assert.equal(typeof fits, 'function', 'the tool says what fits a reply');
     assert.deepEqual({ state: sugg.state, hint: sugg.hint, nextReadAt: sugg.nextReadAt, cursor: sugg.cursor, more: sugg.more, reset: sugg.reset }, { state: 'topics_pending', hint: 'Topics are being made.', nextReadAt: '2026-01-01T01:00:00.000Z', cursor: 'c.9', more: true, reset: true });
-    assert.deepEqual(Object.keys(sugg.picks[0]).sort(), ['facts', 'id', 'lang', 'level', 'publication', 'publishedAt', 'reason', 'title', 'url']);
+    assert.deepEqual(Object.keys(sugg.picks[0]).sort(), ['facts', 'id', 'lang', 'level', 'publication', 'publishedAt', 'reason', 'show', 'title', 'url']);
     await call('get_suggestions', { since: 'all', limit: 3 });
     assert.deepEqual({ ...(seen.sugg as object), fits: undefined }, { since: 'all', limit: 3, fits: undefined });
 
@@ -90,7 +90,7 @@ test('no tool reply carries article body text, or any pick field the services ad
     const c = await r.client();
     const reply = json(await c.callTool({ name: 'get_suggestions', arguments: {} }));
     assert.doesNotMatch(JSON.stringify(reply), /FULL ARTICLE TEXT|NEW FIELD/);
-    assert.deepEqual(Object.keys(reply.picks[0]).sort(), ['facts', 'id', 'lang', 'level', 'publication', 'publishedAt', 'reason', 'title', 'url']);
+    assert.deepEqual(Object.keys(reply.picks[0]).sort(), ['facts', 'id', 'lang', 'level', 'publication', 'publishedAt', 'reason', 'show', 'title', 'url']);
   } finally {
     await r.stop();
   }

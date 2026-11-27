@@ -64,7 +64,7 @@ test('search_news: sends SearchNews, GetArticlesForTopicsByIds and the story loo
   assert.deepEqual(calls[1].variables, { articleIds: ['b', 'gone', 'a'] });
   const body = json(res);
   assert.deepEqual(body.results.map((x: any) => x.title), ['Original title b', 'Original title a']);
-  assert.deepEqual(Object.keys(body.results[0]).sort(), ['id', 'language', 'link', 'publishedAt', 'publisher', 'title', 'title_en']);
+  assert.deepEqual(Object.keys(body.results[0]).sort(), ['id', 'language', 'link', 'publishedAt', 'publisher', 'show', 'title', 'title_en']);
   assert.equal(body.results[0].id, 'b');
   assert.equal(body.results[0].language, 'nl');
   assert.doesNotMatch(JSON.stringify(body), /SECRET|img\.example/);
@@ -74,7 +74,9 @@ test('search_news: no hits makes one call and returns no results', async () => {
   const { calls, services } = stub(() => ({ data: { searchNewsPage: { hits: [], nextCursor: null } } }));
   const res = await callWith(services, 'search_news', { query: 'nothing' });
   assert.equal(calls.length, 1);
-  assert.deepEqual(json(res), { results: [] });
+  const { next, ...rest } = json(res);
+  assert.deepEqual(rest, { results: [] });
+  assert.match(next, /Show each story by its show line/);
   assert.equal(calls[0].variables.limit, 20, 'the default total');
 });
 
@@ -89,9 +91,11 @@ test('latest_news: asks for the newest with the country and limit, and its curso
     const body = json(await c.callTool({ name: 'latest_news', arguments: { country: 'GBR', limit: 3 } }));
     assert.equal(calls[0].operationName, 'GetArticlesForCountry');
     assert.deepEqual(calls[0].variables, { countryCode: 'GBR', first: 3, after: null, order: 'NEWEST' });
-    assert.deepEqual(body.results[0], { id: 'a', title: 'English title a', link: 'https://news.example/a', publisher: '', publishedAt: '2026-01-02T03:04:05.000Z', language: 'und' });
+    // With no publisher name, the show line names the publisher's site.
+    assert.deepEqual(body.results[0], { id: 'a', title: 'English title a', link: 'https://news.example/a', publisher: '', publishedAt: '2026-01-02T03:04:05.000Z', language: 'und', show: '[English title a](https://news.example/a) · news.example' });
     assert.equal(body.remaining, 2);
-    assert.equal(body.next, `Call latest_news with ${JSON.stringify({ country: 'GBR', after: body.nextCursor })}: 2 of the 3 asked for are still to come.`);
+    assert.match(body.next, /^Keep the order given and show every story\. Show each story by its show line/);
+    assert.ok(body.next.endsWith(`Call latest_news with ${JSON.stringify({ country: 'GBR', after: body.nextCursor })}: 2 of the 3 asked for are still to come.`));
     await c.callTool({ name: 'latest_news', arguments: { country: 'GBR', after: body.nextCursor } });
     assert.deepEqual(calls[1].variables, { countryCode: 'GBR', first: 2, after: 'end-a', order: 'NEWEST' }, 'a whole page goes on from its end');
     // A cursor made for one country is not used for another.
@@ -101,7 +105,8 @@ test('latest_news: asks for the newest with the country and limit, and its curso
     more = false;
     const last = json(await c.callTool({ name: 'latest_news', arguments: {} }));
     assert.equal('nextCursor' in last, false);
-    assert.equal('next' in last, false);
+    assert.equal('remaining' in last, false);
+    assert.doesNotMatch(last.next, /Call /);
     assert.deepEqual(calls[2].variables, { countryCode: null, first: 20, after: null, order: 'NEWEST' });
   } finally {
     await r.stop();
@@ -255,6 +260,8 @@ test('news tools: reports of one event share a story, and a headline in another 
       ['c', undefined, 'English title c'],
     ],
   );
+  // Two results of one story in this reply: each show line says one other report.
+  assert.deepEqual(body.results.map((x: any) => x.show.replace(/^.*\) · /, '')), ['The Paper +1 report', 'The Paper +1 report', 'The Paper']);
 });
 
 test('news tools: a news server that cannot group still answers with the plain list', async () => {

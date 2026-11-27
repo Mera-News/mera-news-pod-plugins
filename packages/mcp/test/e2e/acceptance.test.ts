@@ -248,13 +248,15 @@ describe('the pod with the mcp plugin, driven by an MCP client', () => {
     const found = await call('search_news', { query: 'volcano flights' });
     assert.deepEqual(found.results.map((r: { title: string }) => r.title), ['Volcano eruption disrupts flights across Icelandic airspace']);
     assert.match(found.results[0].link, /^https?:\/\//);
+    assert.ok(found.results[0].show.startsWith(`[${found.results[0].title}](${found.results[0].link}) · `), found.results[0].show);
     const latest = await call('latest_news', { limit: 3 });
     assert.equal(latest.results.length, 3);
     assert.ok(latest.results.every((r: { title: string }) => titles.has(r.title)));
-    assert.equal('next' in latest, false, 'limit is the total, so the three asked for are all');
+    assert.equal('remaining' in latest, false, 'limit is the total, so the three asked for are all');
     const all = await call('latest_news', {});
     assert.equal(new Set(all.results.map((r: { id: string }) => r.id)).size, articles.length, 'every article once');
-    assert.equal('next' in all, false, 'nothing more to come');
+    assert.equal('remaining' in all, false, 'nothing more to come');
+    assert.doesNotMatch(all.next, /Call /);
     const nl = await call('latest_news', { country: 'NLD' });
     assert.deepEqual(nl.results.map((r: { title: string }) => r.title), ['Central bank holds interest rates steady citing sluggish inflation']);
   });

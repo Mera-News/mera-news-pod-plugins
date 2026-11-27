@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fakeServices, json, run } from './helpers';
+import { assertShow, fakeServices, json, run } from './helpers';
 
 type Body = { operationName: string; query: string; variables: Record<string, any> };
 
@@ -47,9 +47,11 @@ test('top_stories: the world by default, each story with its lead publisher, lin
       topHeadlinesForCountry: {
         headlines: [
           { clusterSize: 12, publisherCount: 9, cursor: 'h0', article: article('a') },
-          { clusterSize: 0, publisherCount: 0, cursor: 'h1', article: article('solo', { original_language_code: 'de', title_en: 'Titel solo' }) },
+          { clusterSize: 0, publisherCount: 1, cursor: 'h1', article: article('solo', { original_language_code: 'de', title_en: 'Titel solo' }) },
+          // An edition built before publishers were counted gives 0: not known, so the reports are counted.
+          { clusterSize: 5, publisherCount: 0, cursor: 'h2', article: article('uncounted') },
         ],
-        pageInfo: { endCursor: 'h1', hasNextPage: true },
+        pageInfo: { endCursor: 'page-end', hasNextPage: true },
       },
     },
   }));
@@ -60,24 +62,27 @@ test('top_stories: the world by default, each story with its lead publisher, lin
   assert.match(calls[0].query, /cursor/);
   for (const c of calls) assert.doesNotMatch(c.query, /description/);
   const body = json(res);
-  assert.deepEqual(body.summary, { stories: 2, reports: 13 });
+  assert.deepEqual(body.summary, { stories: 3, reports: 18 });
   assert.equal(body.scope, 'world');
-  // The reply itself says how to show it, and the description no longer claims an order by report count.
-  assert.equal(body.show, 'Show every story below in this order, each headline word for word or translated, with its exact reportCount when that is more than 1. Add no detail of your own.');
-  const [a, solo] = body.stories;
-  assert.deepEqual(a, { id: 'a', title: 'Titel a', title_en: 'Title a', link: 'https://news.example/a', publisher: 'Paper a', publishedAt: '2026-01-02T03:04:05.000Z', reportCount: 12, publisherCount: 9 });
-  assert.deepEqual([solo.reportCount, solo.publisherCount, 'title_en' in solo, 'reports' in solo], [1, 1, false, false]);
+  // The reply itself says how to show it, last, before the call for more.
+  assert.match(body.next, /^Keep the order given and show every story\. Show each story by its show line, exactly as written: only the headline text inside the brackets may be translated into the reader's language\. Never write a story without its show line\. Call top_stories with /);
+  const [a, solo, uncounted] = body.stories;
+  assert.deepEqual(a, { id: 'a', title: 'Titel a', title_en: 'Title a', link: 'https://news.example/a', publisher: 'Paper a', publishedAt: '2026-01-02T03:04:05.000Z', reportCount: 12, publisherCount: 9, show: '[Titel a](https://news.example/a) · Paper a +8 publications' });
+  assert.deepEqual([solo.reportCount, solo.publisherCount, 'title_en' in solo, 'reports' in solo, solo.show], [1, 1, false, false, '[Titel solo](https://news.example/solo) · Paper solo']);
+  assert.deepEqual([uncounted.reportCount, 'publisherCount' in uncounted, uncounted.show], [5, false, '[Titel uncounted](https://news.example/uncounted) · Paper uncounted +4 reports']);
+  for (const s of body.stories) assertShow(s);
   assert.deepEqual(keys(body).filter((k) => /description|image/.test(k)), []);
   assert.doesNotMatch(JSON.stringify(body), /SECRET|img\.example/);
-  // The page was whole but the limit is not reached: the next call goes on from the page's end.
-  assert.equal(body.remaining, 18);
+  // The page was whole but the limit is not reached: the next call goes on from the last headline's own
+  // cursor, which names the edition, not from the page's end.
+  assert.equal(body.remaining, 17);
   const again = await run({ services });
   try {
     await (await again.client()).callTool({ name: 'top_stories', arguments: { after: body.nextCursor } });
   } finally {
     await again.stop();
   }
-  assert.deepEqual(calls[1].variables, { countryCode: null, first: 18, after: 'h1' });
+  assert.deepEqual(calls[1].variables, { countryCode: null, first: 17, after: 'h2' });
 });
 
 test('top_stories: every publisher of one story, a page at a time, when the person asks', async () => {
@@ -95,7 +100,9 @@ test('top_stories: every publisher of one story, a page at a time, when the pers
   const rest = json(await call(services, { story: 'big', after: 'r25' }));
   assert.deepEqual(calls.map((c) => c.operationName), ['GetNewsClusterForArticle']);
   assert.deepEqual(calls.at(-1)!.variables, { articleId: 'big', first: 25, after: 'r25' });
-  assert.deepEqual(rest, { story: 'big', reportCount: 60, reports: [{ publisher: 'Paper r26', link: 'https://news.example/r26', language: 'nl' }], nextCursor: 'r50' });
+  const { next, ...data } = rest;
+  assert.deepEqual(data, { story: 'big', reportCount: 60, reports: [{ title: 'Titel r26', publisher: 'Paper r26', link: 'https://news.example/r26', language: 'nl', show: '[Titel r26](https://news.example/r26) · Paper r26' }], nextCursor: 'r50' });
+  assert.match(next, /Show each story by its show line/);
 });
 
 test('top_stories: a page too large for one reply keeps every story it can and goes on from the last kept headline\'s own cursor', async () => {
@@ -109,7 +116,7 @@ test('top_stories: a page too large for one reply keeps every story it can and g
   assert.equal(body.summary.stories, kept);
   assert.deepEqual(calls.map((c) => c.variables.first), [100], 'asked once');
   assert.equal(body.remaining, 100 - kept);
-  assert.match(body.next, new RegExp(`^Call top_stories with \\{"country":"NLD","after":"[^"]+"\\}: ${100 - kept} of the 100 asked for are still to come\\.$`));
+  assert.match(body.next, new RegExp(`Call top_stories with \\{"country":"NLD","after":"[^"]+"\\}: ${100 - kept} of the 100 asked for are still to come\\.$`));
   const r = await run({ services });
   try {
     await (await r.client()).callTool({ name: 'top_stories', arguments: { country: 'NLD', after: body.nextCursor } });
@@ -119,17 +126,19 @@ test('top_stories: a page too large for one reply keeps every story it can and g
   assert.deepEqual(calls[1].variables, { countryCode: 'NLD', first: 100 - kept, after: `c${kept - 1}` });
 });
 
-test('top_stories: a rebuilt edition says so and how to start again', async () => {
-  const { services } = stub((b) =>
-    b.variables.after ? { errors: [{ message: 'edition 7 is gone', extensions: { code: 'EDITION_CHANGED' } }] } : { data: { topHeadlinesForCountry: { headlines: [{ clusterSize: 2, publisherCount: 2, cursor: 'c0', article: article('a') }], pageInfo: { endCursor: 'c0', hasNextPage: true } } } },
+test('top_stories: an edition made again between calls starts the list again from the top and says so', async () => {
+  const { calls, services } = stub((b) =>
+    b.variables.after ? { errors: [{ message: 'edition 7 is gone', extensions: { code: 'EDITION_CHANGED' } }] } : { data: { topHeadlinesForCountry: { headlines: [{ clusterSize: 2, publisherCount: 2, cursor: 'c0@7', article: article('a') }], pageInfo: { endCursor: 'end', hasNextPage: true } } } },
   );
   const r = await run({ services });
   try {
     const c = await r.client();
-    const first = json(await c.callTool({ name: 'top_stories', arguments: {} }));
+    const first = json(await c.callTool({ name: 'top_stories', arguments: { limit: 3 } }));
     const res = json(await c.callTool({ name: 'top_stories', arguments: { after: first.nextCursor } }));
-    assert.equal(res.code, 'edition_changed');
-    assert.match(res.next, /^call top_stories again without "after"/);
+    assert.equal(res.code, undefined, JSON.stringify(res));
+    assert.deepEqual(res.stories.map((s: { id: string }) => s.id), ['a']);
+    assert.match(res.next, /^Keep the order given .* The top stories were made again since the last page, so this page starts again from the top, and a story already shown can come again\. Call top_stories with .*: 1 of the 3 asked for are still to come\.$/);
+    assert.deepEqual(calls.map((b) => b.variables.after), [null, 'c0@7', null], 'the page after asked from the headline\'s own cursor, then the top');
     assert.doesNotMatch(JSON.stringify(res), /edition 7/);
   } finally {
     await r.stop();

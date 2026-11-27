@@ -134,7 +134,18 @@ export function fakeNews(opts: { count?: number; titleLength?: number; old?: boo
   const over: string[] = [];
   const refuse = (what: string) => (over.push(what), { errors: [{ message: what, extensions: { code: 'OVER_CAP' } }] });
   const unknown = { errors: [{ message: 'Cannot query that field.', extensions: { code: opts.oldCode ?? 'GRAPHQL_VALIDATION_FAILED' } }] };
-  const from = (after: string | null | undefined, tag: string) => (after ? Number(after.slice(tag.length + 1)) + (tag === 's' ? 0 : 1) : 0);
+  const from = (after: string | null | undefined, tag: string) => (after ? Number(after.slice(tag.length + 1)) + 1 : 0);
+  // The search cursor has the data server's shape, base64 JSON of the frozen window and the offset; each new window gets its own asOf.
+  const windows: string[] = [];
+  const searchCursor = (asOf: string, offset: number) => Buffer.from(JSON.stringify({ asOf, from: new Date(Date.parse(asOf) - 48 * 3600_000).toISOString(), offset })).toString('base64');
+  const searchAt = (after: string | null | undefined) => {
+    if (!after) {
+      windows.push(new Date(Date.UTC(2026, 0, 2, 0, windows.length)).toISOString());
+      return { asOf: windows.at(-1)!, offset: 0 };
+    }
+    const c = JSON.parse(Buffer.from(after, 'base64').toString('utf8'));
+    return { asOf: c.asOf as string, offset: c.offset as number };
+  };
   const graphql = async (raw: unknown): Promise<any> => {
     const b = raw as Body;
     calls.push(b);
@@ -145,9 +156,9 @@ export function fakeNews(opts: { count?: number; titleLength?: number; old?: boo
         if (paged && opts.old) return unknown;
         const max = paged ? 100 : 25;
         if (!(v.limit >= 1 && v.limit <= max)) return refuse(`search limit ${v.limit}`);
-        const start = paged ? from(v.after, 's') : 0;
+        const { asOf, offset: start } = paged ? searchAt(v.after) : { asOf: '', offset: 0 };
         const hits = ids.slice(start, start + v.limit).map((_id) => ({ _id }));
-        return { data: paged ? { searchNewsPage: { hits, nextCursor: start + v.limit < count ? `s:${start + v.limit}` : null } } : { searchNews: hits } };
+        return { data: paged ? { searchNewsPage: { hits, nextCursor: start + v.limit < count ? searchCursor(asOf, start + v.limit) : null } } : { searchNews: hits } };
       }
       case 'GetArticlesForTopicsByIds': {
         if (!(v.articleIds.length >= 1 && v.articleIds.length <= 50)) return refuse(`${v.articleIds.length} ids`);
@@ -191,7 +202,7 @@ export function fakeNews(opts: { count?: number; titleLength?: number; old?: boo
         return { errors: [{ message: 'not served', extensions: { code: 'NOT_IMPLEMENTED' } }] };
     }
   };
-  return { ids, calls, over, services: fakeServices({ news: { graphql } }) };
+  return { ids, calls, over, windows, services: fakeServices({ news: { graphql } }) };
 }
 
 export const estimate = (text: string) => Math.ceil(text.length / 4);
@@ -258,6 +269,22 @@ export async function run(opts: { services?: PodServices; config?: unknown; toke
   };
 }
 
+/**
+ * A story's show line is `[headline](link) · Publisher`, then `+N publications` when it has more than one
+ * publisher, or `+N reports` when only its reports are known. Checks it against the item's own fields.
+ */
+export function assertShow(s: any, given?: number) {
+  const reports = given ?? s?.reportCount ?? (typeof s?.reports === 'number' ? s.reports : 0);
+  const m = /^\[((?:[^\[\]\\]|\\.)*)\]\((https?:\/\/[^\s()]+)\) · (.+?)(?: \+(\d+) (publications?|reports?))?$/.exec(s?.show ?? '');
+  assert.ok(m, `a show line: ${JSON.stringify(s)}`);
+  assert.equal(m[1].replace(/\\(.)/g, '$1'), s.title.replace(/\s+/g, ' ').trim(), 'the headline, word for word');
+  assert.equal(m[2], s.link ?? s.url, 'the link');
+  assert.equal(m[3], s.publisher ?? s.publication, 'the publisher');
+  const pubs = s.publisherCount ?? 0;
+  const others = pubs > 1 ? [pubs - 1, 'publication'] : pubs === 0 && reports > 1 ? [reports - 1, 'report'] : undefined;
+  assert.deepEqual(m[4] ? [Number(m[4]), m[5].replace(/s$/, '')] : undefined, others, `the count in ${s.show}`);
+}
+
 export const json = (result: { content?: unknown }) => JSON.parse(((result.content as { text: string }[])[0]).text);
 
 /**
@@ -276,6 +303,7 @@ export async function walk(c: Client, name: string, args: Record<string, unknown
     assert.equal(res.isError, undefined, text);
     assert.ok(estimate(text) <= MAX_TOKENS && text.length <= MAX_CHARS, `reply ${calls} is ${text.length} characters`);
     reply = JSON.parse(text);
+    assert.match(reply.next, /Show each story by its show line, exactly as written/, 'every reply says how to show its stories');
     seen.push(...items(reply));
     if (reply.truncated) cuts++;
     const call = /Call (\w+) with (\{.*\}): (\d+) of the (\d+) asked for are still to come\.$/.exec(reply.next ?? '');
@@ -284,6 +312,7 @@ export async function walk(c: Client, name: string, args: Record<string, unknown
       assert.deepEqual([Number(call[3]), Number(call[4]), reply.remaining], [total - seen.length, total, total - seen.length]);
     }
     a = call ? JSON.parse(call[2]) : undefined;
+    if (!call) assert.equal('remaining' in reply, false, 'a reply with nothing more to come has no remaining');
   }
   return { seen, cuts, calls, last: reply };
 }

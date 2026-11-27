@@ -2,11 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PodServices, ProfileStory, StoriesSummary } from 'mera-news-pod/plugin-api';
 import { OLD_SERVER_NEXT } from '../../src/paging';
-import { deliveringSuggestions, fakeNews, fakeServices, json, pick, run, walk } from './helpers';
+import { assertShow, deliveringSuggestions, fakeNews, fakeServices, json, pick, run, walk } from './helpers';
 
 // Long headlines, so a page of 100 is cut by the reply cap and the cut pages must go on exactly.
 const LONG = 400;
-const ids = (key: string) => (reply: any) => reply[key].map((x: { id: string }) => x.id);
+/** The ids of a reply's items, after checking each item's show line: its link, its publisher and how many others reported it. */
+const ids = (key: string) => (reply: any) => {
+  const list: any[] = reply[key];
+  // A search or newest result counts the results of its story in this reply.
+  const size = (x: any) => (x.story ? list.filter((y) => y.story === x.story).length : undefined);
+  for (const x of list) assertShow(x, size(x));
+  return list.map((x) => x.id);
+};
 
 for (const [name, args, key] of [
   ['top_stories', { limit: 1000 }, 'stories'],
@@ -22,13 +29,49 @@ for (const [name, args, key] of [
       assert.ok(cuts > 0, 'the cap cut some pages');
       assert.equal(seen.length, 1000);
       assert.deepEqual(seen, news.ids, 'every item once, in order, with no gap');
-      assert.equal('next' in last, false);
-      assert.ok(calls <= 30, `${calls} calls`);
+      assert.doesNotMatch(last.next, /Call /);
+      // Each show line repeats its headline and link, so these 400-character headlines take more calls.
+      assert.ok(calls <= 40, `${calls} calls`);
     } finally {
       await r.stop();
     }
   });
+}
 
+for (const [name, key] of [
+  ['top_stories', 'stories'],
+  ['latest_news', 'results'],
+] as const) {
+  test(`${name}: an older news server still pages to the end by its page-end cursor, asking a cut page again for only what was kept, and is asked the new query once`, async () => {
+    const news = fakeNews({ titleLength: LONG, old: true });
+    const r = await run({ services: news.services });
+    try {
+      const { seen, cuts } = await walk(await r.client(), name, { limit: 1000 }, ids(key), 1000);
+      assert.deepEqual(seen, news.ids, 'every item once, in order, with no gap');
+      assert.ok(cuts > 0, 'the cap cut some pages');
+      const asks = news.calls.filter((b) => b.operationName !== 'ClusterMembershipsForArticles');
+      assert.equal(asks.filter((b) => /itemCursors|publisherCount/.test(b.query)).length, 1, 'the new query once');
+      assert.deepEqual(news.over, []);
+    } finally {
+      await r.stop();
+    }
+  });
+}
+
+test('search_news: a first page the reply cap cuts goes on in the same window, so the walk never starts a new one', async () => {
+  const news = fakeNews({ titleLength: LONG });
+  const r = await run({ services: news.services });
+  try {
+    const { seen, cuts } = await walk(await r.client(), 'search_news', { query: 'storm', limit: 300 }, ids('results'), 300);
+    assert.ok(cuts > 0, 'the cap cut the first page');
+    assert.deepEqual(seen, news.ids.slice(0, 300));
+    assert.equal(news.windows.length, 1, 'one window for the whole walk');
+  } finally {
+    await r.stop();
+  }
+});
+
+for (const [name, args, key] of [['search_news', { query: 'storm', limit: 1000 }, 'results']] as const) {
   test(`${name}: an older news server answers its first page, says paging needs a newer one, and is not asked the new query again`, async () => {
     const news = fakeNews({ old: true, oldCode: name === 'search_news' ? 'NOT_IN_LOCAL_MODE' : 'GRAPHQL_VALIDATION_FAILED' });
     const r = await run({ services: news.services });
@@ -38,7 +81,7 @@ for (const [name, args, key] of [
       for (let i = 0; i < 2; i++) {
         const reply = json(await c.callTool({ name, arguments: args }));
         assert.ok(reply[key].length > 0, JSON.stringify(reply).slice(0, 300));
-        assert.equal(reply.next, OLD_SERVER_NEXT);
+        assert.ok(reply.next.endsWith(OLD_SERVER_NEXT), reply.next);
         assert.equal('nextCursor' in reply, false);
       }
       const first = news.calls.filter((b) => b.operationName !== 'ClusterMembershipsForArticles' && b.operationName !== 'GetArticlesForTopicsByIds');
@@ -69,7 +112,7 @@ test('get_suggestions: limit 1000 walked by each reply\'s next gives every pick 
   const picks = Array.from({ length: 1000 }, (_, i) => ({ ...pick(i), reason: `Reason ${i}: ${'words '.repeat(60)}` }));
   const r = await run({ services: fakeServices({ suggestions: deliveringSuggestions(picks) }) });
   try {
-    const { seen, calls } = await walk(await r.client(), 'get_suggestions', { limit: 1000 }, (reply) => reply.picks.map((p: { id: string }) => p.id), 1000);
+    const { seen, calls } = await walk(await r.client(), 'get_suggestions', { limit: 1000 }, (reply) => reply.picks.map((p: any) => (assertShow(p), p.id)), 1000);
     assert.deepEqual(seen, picks.map((p) => p.id));
     assert.ok(calls > 10, `${calls} calls`);
   } finally {

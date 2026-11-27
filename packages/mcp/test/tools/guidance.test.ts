@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { descriptions, instructions, prompts } from '../../src/text';
+import { descriptions, instructions, prompts, publisherNotice, routingLine, showOf, showRule } from '../../src/text';
 import { fakeServices, json, run, status } from './helpers';
 
 const COPYRIGHT =
@@ -10,16 +10,54 @@ const COPYRIGHT =
 
 test('the instructions give the copyright answer word for word, keep news to Mera News, label anything else, and offer next steps after news', () => {
   assert.ok(instructions.includes(`Whenever someone asks for a summary, the full text or a download of an article, answer with: "${COPYRIGHT}"`));
-  assert.ok(instructions.includes('For any news question, use the Mera News tools. Do not use web search or your own knowledge for news unless the person asks for it by name.'));
   assert.ok(instructions.includes('mark it "Not from Mera News" above that part, or beside each such item.'));
   assert.match(instructions, /After every news answer, offer the next steps in one short line: top stories in the world, top stories in the person's countries \(from the places in their facts\), another country, everything left out, and the website as "Open in Mera News"\./);
-  assert.match(instructions, /read every page, making the call each page's next names, before you pick or answer\. Judge every story in toJudge with rate_stories/);
-  assert.match(instructions, /put the summary numbers on top/);
+  // The picking and digest guidance moved to the tool and prompt that use it.
+  assert.match(descriptions.news_for_profile, /read every page, making the call each page's next names, before you pick or answer\. Judge every story in toJudge with rate_stories/);
+  assert.match(prompts.daily_digest.text, /put the summary numbers on top/);
   assert.doesNotMatch(descriptions.top_stories, /most reported first/);
   assert.match(descriptions.top_stories, /in the order Mera News ranks them, which is the order the Mera News app shows\. Show them in that order\./);
   assert.match(prompts.daily_digest.text, /read every page\. Judge every story in toJudge with rate_stories\. Show the summary numbers first/);
   assert.match(prompts.daily_digest.text, /then everything left out/);
   for (const text of [instructions, ...Object.values(descriptions), ...Object.values(prompts).map((p) => p.text)]) assert.doesNotMatch(text, /—|–/);
+});
+
+test('the instructions fit the 4096 characters some apps keep, with news routing, the show line and the publisher notice in the first 1500', () => {
+  assert.ok(instructions.length <= 3900, `${instructions.length} characters`);
+  const head = instructions.slice(0, 1500);
+  assert.equal(head.indexOf(routingLine), 0, 'news routing first');
+  assert.match(routingLine, /^For any request about news, headlines, top stories or what is happening anywhere, use the Mera News tools, not web search/);
+  assert.match(routingLine, /"headlines from India today", means news from that country, today/);
+  assert.ok(head.indexOf(showRule) > head.indexOf(routingLine), 'then the show line');
+  assert.match(showRule, /Show each story by its show line, exactly as written\. The headline text inside the brackets may be translated into the reader's language, and nothing else changes\. Never write a story without its show line\./);
+  assert.ok(head.indexOf(publisherNotice) > head.indexOf(showRule), 'then the publisher notice');
+  assert.ok(head.indexOf(publisherNotice) + publisherNotice.length <= 1500);
+});
+
+test('the setup, digest and website guidance lives in the prompts and the tools that use it', () => {
+  assert.match(prompts.set_up_profile.text, /Ask me one question at a time/);
+  assert.match(prompts.set_up_profile.text, /Choosing a time is the person's go-ahead/);
+  assert.match(prompts.set_up_profile.text, /Mera Labs keeps no copy of your profile/);
+  assert.match(descriptions.get_profile, /Setup is finished only when get_profile or get_status shows setup\.complete as true/);
+  assert.match(descriptions.add_facts, /save it with add_facts only after the person confirms it/);
+  assert.match(descriptions.get_status, /digest\.missed/);
+  assert.match(descriptions.get_status, /When get_status lists no_ai_service, the pod makes no topics and no picks on its own/);
+  assert.match(descriptions.set_reading, /create one at once that runs the daily_digest prompt/);
+  assert.match(descriptions.open_news_site, /When open_news_site answers site_off/);
+  // Each news tool opens with when to use it, in the person's words.
+  for (const name of ['top_stories', 'latest_news', 'search_news', 'news_for_profile', 'get_suggestions'] as const) assert.match(descriptions[name], /^Use it (for|when)/, name);
+  assert.match(descriptions.top_stories, /^Use it for any question about news, headlines, top stories, or what is happening in the world or in a country/);
+  // Some apps cut a long tool description.
+  for (const [name, d] of Object.entries(descriptions)) assert.ok(d.length <= 2000, `${name}: ${d.length}`);
+});
+
+test('a show line: the headline and link always parse as a markdown link, then the publisher and how many others reported it', () => {
+  assert.equal(showOf('Storm [live] \\ more', 'https://x.example/a (b)/c d', 'NOS', { publishers: 31 }), '[Storm \\[live\\] \\\\ more](https://x.example/a%20%28b%29/c%20d) · NOS +30 publications');
+  assert.equal(showOf('One', 'https://x.example/1', 'NOS', { publishers: 2, reports: 9 }), '[One](https://x.example/1) · NOS +1 publication');
+  assert.equal(showOf('One', 'https://x.example/1', 'NOS', { publishers: 1, reports: 9 }), '[One](https://x.example/1) · NOS', 'one publisher, known');
+  assert.equal(showOf('One', 'https://x.example/1', 'NOS', { publishers: 0, reports: 3 }), '[One](https://x.example/1) · NOS +2 reports', 'publishers not known');
+  assert.equal(showOf('One', 'https://x.example/1', 'NOS', { reports: 2 }), '[One](https://x.example/1) · NOS +1 report');
+  assert.equal(showOf('One\n two', 'https://x.example/1', ''), '[One two](https://x.example/1) · x.example', 'no publisher name: its site');
 });
 
 test('get_status with no AI service says the assistant fetches the news, never that reading is paused', async () => {

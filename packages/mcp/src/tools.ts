@@ -1,13 +1,13 @@
 import { McpServer, type CallToolResult, type StandardSchemaWithJSON, type ToolAnnotations } from '@modelcontextprotocol/server';
 import path from 'node:path';
-import type { PickView, PluginContext, PodStatus, ProfileSetup, ProfileStory, ProfileView, StoriesSummary } from 'mera-news-pod/plugin-api';
+import type { JudgeResult, PickView, PluginContext, PodStatus, ProfileSetup, ProfileStory, ProfileView, StoriesSummary } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
 import { DIGEST_FILE, HINT_FILE, hintOf, isDue, lastMoment, MISSED_AFTER_MS, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
 import { CARD_MIME, CARD_TOOLS, CARD_URI, cardHtml } from './card';
 import { siteLink } from './link';
 import { badCursor, coded, decode, LIMIT_MAX, more, OLD_SERVER_NEXT, start } from './paging';
 import { fail, fit, ok, within } from './reply';
-import { descriptions, instructions, newsOnlyLine, prompts, showAsGiven } from './text';
+import { descriptions, instructions, keepOrder, newsOnlyLine, prompts, showNext, showOf } from './text';
 
 const statement = z.string().min(1).max(300);
 const statements = z.array(z.union([statement, z.object({ statement, topics: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional() })])).min(1).max(10);
@@ -56,7 +56,7 @@ const schemas = {
         }),
       )
       .min(1)
-      .max(50),
+      .max(500),
   }),
   get_status: z.object({}),
   set_reading: z.object({
@@ -88,16 +88,18 @@ function advertise(schema: z.ZodType): StandardSchemaWithJSON {
 
 // Only the named fields leave: a service that ever hands back article text is not passed through.
 // Text from a feed is capped, so one pick always fits a reply on its own.
-const pickOut = (p: PickView): PickView => ({
-  id: p.id,
-  title: p.title.slice(0, 500),
-  publication: p.publication.slice(0, 200),
-  url: p.url,
-  publishedAt: p.publishedAt,
-  level: p.level,
-  lang: p.lang,
-  reason: p.reason.slice(0, 1000),
-  facts: p.facts.slice(0, 10),
+const pickOut = (p: PickView) => {
+  const title = p.title.slice(0, 500);
+  const publication = p.publication.slice(0, 200);
+  return { id: p.id, title, publication, url: p.url, publishedAt: p.publishedAt, level: p.level, lang: p.lang, reason: p.reason.slice(0, 1000), facts: p.facts.slice(0, 10), show: showOf(title, p.url, publication) };
+};
+
+/** The next sentence every list reply ends with: how to show its stories, then any call for more. */
+const nextOf = (ordered: boolean, ...then: (string | undefined)[]) => [ordered ? keepOrder : '', showNext, ...then].filter(Boolean).join(' ');
+/** The paging fields of a reply with more, with next told how to show the stories first. */
+const pagingOf = (ordered: boolean, paging: ReturnType<typeof more> | undefined, ...before: (string | undefined)[]) => ({
+  ...(paging ? { nextCursor: paging.nextCursor, remaining: paging.remaining } : {}),
+  next: nextOf(ordered, ...before, paging?.next),
 });
 
 // The paged queries keep the operation names the client allows; the old ones serve an older news server.
@@ -137,6 +139,8 @@ const SEARCH_MAX = 100;
 const NEWEST_MAX = 50;
 const BY_IDS_MAX = 50;
 const MEMBERSHIPS_MAX = 500;
+/** What an older pod takes: 50 stories a news_for_profile page, 50 verdicts a rate_stories call. */
+const OLD_POD_MAX = 50;
 
 const CLUSTERS = `query ClusterMembershipsForArticles($articleIds: [ID!]!) { clusterMembershipsForArticles(articleIds: $articleIds) { articleId clusters { clusterId stableClusterId confidence } } }`;
 
@@ -197,6 +201,24 @@ function need<T>(a: Answer<T>, tool: string, withCursor: boolean): T {
 /** A cursor made while the news server could page, used after it turned out not to. */
 const cannotPage = (tool: string) => coded('cannot_page', 'This news server cannot give a next page.', `show the person what ${tool} gave so far; paging needs a newer news server`);
 
+/** Said first in next when a top stories walk starts again because the edition was made again. */
+const EDITION_RESTARTED = 'The top stories were made again since the last page, so this page starts again from the top, and a story already shown can come again.';
+
+/**
+ * The data server's search cursor (base64 JSON: asOf, from, offset) moved `back` hits earlier in the
+ * same window, so a cut page goes on without starting a new window. Undefined for any other shape.
+ * shortcut: reads the server's cursor shape; if it changes, a cut page falls back to reading its page again.
+ */
+function searchCursorBack(cursor: string, back: number): string | undefined {
+  try {
+    const c = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+    if (typeof c?.asOf !== 'string' || typeof c?.from !== 'string' || !Number.isInteger(c.offset) || c.offset - back < 0) return undefined;
+    return Buffer.from(JSON.stringify({ asOf: c.asOf, from: c.from, offset: c.offset - back })).toString('base64');
+  } catch {
+    return undefined;
+  }
+}
+
 type NewsOut = ReturnType<typeof newsOut>[number] & { story?: string };
 
 /**
@@ -216,11 +238,18 @@ async function storiesOf(graphql: Graphql, ids: string[]): Promise<Map<string, s
   return storyOf;
 }
 
-/** Gives reports of one event in a reply the same `story`. Only a story with two or more reports in this reply is named: a story of one tells the reader nothing. */
-function withStories(results: NewsOut[], storyOf: Map<string, string>): NewsOut[] {
+/**
+ * Gives reports of one event in a reply the same `story`, and each result its show line. Only a story
+ * with two or more reports in this reply is named: a story of one tells the reader nothing. Built for
+ * the results kept, so the counts are this reply's.
+ */
+function withStories(results: NewsOut[], storyOf: Map<string, string>) {
   const size = new Map<string, number>();
   for (const r of results) if (storyOf.has(r.id)) size.set(storyOf.get(r.id)!, (size.get(storyOf.get(r.id)!) ?? 0) + 1);
-  return results.map((r) => (size.get(storyOf.get(r.id) ?? '')! > 1 ? { ...r, story: storyOf.get(r.id)! } : r));
+  return results.map((r) => {
+    const n = size.get(storyOf.get(r.id) ?? '') ?? 0;
+    return { ...r, ...(n > 1 ? { story: storyOf.get(r.id)! } : {}), show: showOf(r.title, r.link, r.publisher, { reports: n }) };
+  });
 }
 
 /** A result with its place in the server's page, so a cut page continues right after the last one kept. */
@@ -239,7 +268,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * topic and fact lists are the same on every page, so only the first page carries them.
  */
 function profileNews(page: { summary: StoriesSummary; stories: ProfileStory[]; shownBefore: number }, first: boolean, paging?: ReturnType<typeof more>) {
-  const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher });
+  const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher, show: showOf(s.title, s.link, s.publisher, { reports: s.reports }) });
   const toJudge = new Map<string, { factId: string; fact: string; stories: object[] }>();
   const picked: object[] = [];
   const leftOut: object[] = [];
@@ -255,10 +284,10 @@ function profileNews(page: { summary: StoriesSummary; stories: ProfileStory[]; s
   const { topics, facts, ...light } = page.summary;
   const summary = first ? page.summary : light;
   const next = paging
-    ? `Read every page before you pick or answer. ${paging.next}`
+    ? `Read every page before you pick or answer. ${showNext} ${paging.next}`
     : page.summary.unjudged > 0
-      ? 'This is the last page. Judge every story in toJudge, on every page, with rate_stories: picked, with a level and one sentence on why it matters to the person, or left_out, with one short reason. Then show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its publisher, its link and its reason.'
-      : 'This is the last page, and every story is judged. Show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its publisher, its link and its reason.';
+      ? `This is the last page. Judge every story in toJudge, on every page, with rate_stories: picked, with a level and one sentence on why it matters to the person, or left_out, with one short reason. Then show the summary numbers, the picks by level with emergency first, and everything left out, each by its show line with its reason. ${showNext}`
+      : `This is the last page, and every story is judged. Show the summary numbers, the picks by level with emergency first, and everything left out, each by its show line with its reason. ${showNext}`;
   return {
     summary,
     toJudge: [...toJudge.values()],
@@ -326,7 +355,8 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     run: (input: z.output<(typeof schemas)[K]>) => Promise<CallToolResult>,
   ) {
     // A tool in CARD_TOOLS names the news card, which apps that draw MCP Apps show under the reply.
-    const _meta = CARD_TOOLS.has(name) ? { ui: { resourceUri: CARD_URI } } : undefined;
+    // Both keys, as the MCP Apps SDK sets them: some hosts read only the flat one.
+    const _meta = CARD_TOOLS.has(name) ? { ui: { resourceUri: CARD_URI }, 'ui/resourceUri': CARD_URI } : undefined;
     server.registerTool(name, { description: descriptions[name], inputSchema: advertise(schemas[name]), annotations, ...(_meta ? { _meta } : {}) }, async (raw: unknown) => {
       const parsed = schemas[name].safeParse(raw);
       if (!parsed.success) {
@@ -421,17 +451,17 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     const fits = (picks: PickView[]) => within(JSON.stringify(picks.map(pickOut)), estimate, ENVELOPE_TOKENS);
     const got = await services.suggestions.get({ ...(pass ? { since: pass } : {}), limit: Math.min(p.r, PER_REPLY), fits });
     const r = p.r - got.picks.length;
-    return ok({ ...got, picks: got.picks.map(pickOut), ...(got.more && r > 0 ? more('get_suggestions', {}, 'since', { ...p, c: got.cursor, r }) : {}) }, estimate);
+    return ok({ ...got, picks: got.picks.map(pickOut), ...pagingOf(false, got.more && r > 0 ? more('get_suggestions', {}, 'since', { ...p, c: got.cursor, r }) : undefined) }, estimate);
   });
 
-  // A page of news results cut to the target; `tail` adds the paging fields for what was kept, so they are measured too.
-  const newsPage = (rows: Row[], storyOf: Map<string, string>, tail: (kept: Row[], cut: boolean) => object) => {
-    const make = (k: Row[], cut: boolean) => ({ results: withStories(k.map((x) => x.r), storyOf), ...(cut ? { truncated: true } : {}), ...tail(k, cut) });
-    const { kept, cut } = fit(rows, make, estimate);
-    return ok(make(kept, cut), estimate);
+  // A page of news results cut to the target; `tail` adds the paging fields for what was kept, so they
+  // are measured too. `reask` gives the real cursor of a cut page after the cut, when only a second
+  // call can (an older news server); the measured reply uses the page's own cursor in its place.
+  const newsPage = async (rows: Row[], storyOf: Map<string, string>, tail: (kept: Row[], cut: boolean, c?: string) => object, reask?: (kept: Row[]) => Promise<string | undefined>) => {
+    const make = (k: Row[], cut: boolean, c?: string) => ({ results: withStories(k.map((x) => x.r), storyOf), ...(cut ? { truncated: true } : {}), ...tail(k, cut, c) });
+    const { kept, cut } = fit(rows, (k, c) => make(k, c), estimate);
+    return ok(make(kept, cut, cut && reask && kept.length ? await reask(kept) : undefined), estimate);
   };
-  // An older news server: its first page only, saying so when it holds more than was shown.
-  const firstOnly = (asked: number, more: boolean) => (k: Row[], cut: boolean) => (asked > k.length && (more || cut) ? { next: OLD_SERVER_NEXT } : {});
   const graphql: Graphql = (body) => services.news.graphql(body);
 
   const hydrate = async (ids: string[]) => {
@@ -458,9 +488,12 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
         const storyOf = await storiesOf(graphql, rows.map((x) => x.r.id));
         return newsPage(rows, storyOf, (k, cut) => {
           const r = p.r - k.length;
-          if (r <= 0) return {};
-          if (cut) return k.length ? more('search_news', { query }, 'after', { ...p, r, s: skip + k.at(-1)!.i + 1, m: size }) : {};
-          return page.nextCursor ? more('search_news', { query }, 'after', { t: p.t, k: p.k, c: page.nextCursor, r, n: p.n }) : {};
+          if (r <= 0 || (cut && !k.length)) return pagingOf(true, undefined);
+          if (!cut) return pagingOf(true, page.nextCursor ? more('search_news', { query }, 'after', { t: p.t, k: p.k, c: page.nextCursor, r, n: p.n }) : undefined);
+          // A cut page goes on right after its last hit shown, in the window the server froze into its cursor.
+          const at = skip + k.at(-1)!.i + 1;
+          const pinned = page.nextCursor ? searchCursorBack(page.nextCursor, page.hits.length - at) : undefined;
+          return pagingOf(true, more('search_news', { query }, 'after', pinned ? { t: p.t, k: p.k, c: pinned, r, n: p.n } : { ...p, r, s: at, m: size }));
         });
       }
       old.add('search_news');
@@ -470,107 +503,127 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     const hits = need(await ask<{ searchNews: { _id: string }[] }>(graphql, 'SearchNews', SEARCH_NEWS, { query, limit: size }), 'search_news', false);
     const wanted = hits.searchNews.map((h) => h._id);
     const rows = (await hydrate(wanted))(wanted);
-    return newsPage(rows, await storiesOf(graphql, rows.map((x) => x.r.id)), firstOnly(limit, wanted.length >= size));
+    // An older search server: its first page only, saying so when it holds more than was shown.
+    const full = wanted.length >= size;
+    return newsPage(rows, await storiesOf(graphql, rows.map((x) => x.r.id)), (k, cut) => ({ next: nextOf(true, limit > k.length && (full || cut) ? OLD_SERVER_NEXT : undefined) }));
   });
 
+  type Articles = { articles: NewsArticleIn[]; itemCursors?: string[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } };
   tool('latest_news', readOnly, async ({ country, limit, after }) => {
     const p = after ? decode('latest_news', country ?? '', after) : start('latest_news', country ?? '', limit);
     const args = country ? { country } : {};
-    type Articles = { articles: NewsArticleIn[]; itemCursors?: string[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } };
-    if (!old.has('latest_news')) {
-      const a = await ask<{ articlesForCountry: Articles }>(graphql, 'GetArticlesForCountry', LATEST, { countryCode: country ?? null, first: Math.min(p.r, PER_REPLY, NEWEST_MAX), after: p.c, order: 'NEWEST' });
-      if (!OLD_SERVER.has(a.code ?? '')) {
-        const page = need(a, 'latest_news', !!after).articlesForCountry;
-        const rows = rowsOf(page.articles).slice(0, p.r);
-        const storyOf = await storiesOf(graphql, rows.map((x) => x.r.id));
-        return newsPage(rows, storyOf, (k, cut) => {
-          const r = p.r - k.length;
-          // A cut page goes on from its last kept article's own cursor; a whole one from the page's end.
-          const c = cut ? (k.length ? page.itemCursors?.[k.at(-1)!.i] : undefined) : page.pageInfo.hasNextPage ? page.pageInfo.endCursor : undefined;
-          return r > 0 && c ? more('latest_news', args, 'after', { ...p, c, r }) : {};
-        });
-      }
-      old.add('latest_news');
-    }
-    if (after) throw cannotPage('latest_news');
-    const a = await ask<{ articlesForCountry: Articles }>(graphql, 'GetArticlesForCountry', ARTICLES_FOR_COUNTRY, { countryCode: country ?? null, first: Math.min(limit, NEWEST_MAX), after: null });
-    const page = need(a, 'latest_news', false).articlesForCountry;
-    const rows = rowsOf(page.articles);
-    return newsPage(rows, await storiesOf(graphql, rows.map((x) => x.r.id)), firstOnly(limit, page.pageInfo.hasNextPage));
+    const first = Math.min(p.r, PER_REPLY, NEWEST_MAX);
+    const get = (query: string, first: number) =>
+      ask<{ articlesForCountry: Articles }>(graphql, 'GetArticlesForCountry', query, { countryCode: country ?? null, first, after: p.c, ...(query === LATEST ? { order: 'NEWEST' } : {}) });
+    let a = old.has('latest_news') ? undefined : await get(LATEST, first);
+    if (a && OLD_SERVER.has(a.code ?? '')) (old.add('latest_news'), (a = undefined));
+    // An older news server pages by its page-end cursor, so a cut page is asked again for only the articles kept.
+    const older = !a;
+    const page = need(a ?? (await get(ARTICLES_FOR_COUNTRY, first)), 'latest_news', !!after).articlesForCountry;
+    const rows = rowsOf(page.articles).slice(0, p.r);
+    const storyOf = await storiesOf(graphql, rows.map((x) => x.r.id));
+    const end = page.pageInfo.endCursor ?? undefined;
+    return newsPage(
+      rows,
+      storyOf,
+      (k, cut, again) => {
+        const r = p.r - k.length;
+        // A cut page goes on from its last kept article's own cursor; a whole one from the page's end.
+        const c = cut ? (older ? (again ?? end) : k.length ? page.itemCursors?.[k.at(-1)!.i] : undefined) : page.pageInfo.hasNextPage ? end : undefined;
+        return pagingOf(true, r > 0 && c ? more('latest_news', args, 'after', { ...p, c, r }) : undefined);
+      },
+      older ? async (k) => need(await get(ARTICLES_FOR_COUNTRY, k.at(-1)!.i + 1), 'latest_news', !!after).articlesForCountry.pageInfo.endCursor ?? undefined : undefined,
+    );
   });
 
   type ReportsPage = { newsClusterForArticle: { clusterSize?: number | null; articles: { articles: NewsArticleIn[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } } | null };
   type Headline = { clusterSize?: number | null; publisherCount?: number | null; cursor?: string | null; article: NewsArticleIn };
   type Headlines = { topHeadlinesForCountry: { headlines: Headline[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } };
-  // A list item: the lead report only, with how many reports and publishers the story has.
+  // A list item: the lead report only, with how many reports and publishers the story has. A
+  // publisherCount of 0 (an edition built before publishers were counted) is not known.
   const storyOut = (h: Headline) =>
-    newsOut(h.article).map(({ language: _, ...lead }) => ({
-      ...lead,
-      reportCount: Math.max(h.clusterSize ?? 1, 1),
-      ...(typeof h.publisherCount === 'number' ? { publisherCount: Math.max(h.publisherCount, 1) } : {}),
-    }));
+    newsOut(h.article).map(({ language: _, ...lead }) => {
+      const reportCount = Math.max(h.clusterSize ?? 1, 1);
+      const publisherCount = typeof h.publisherCount === 'number' && h.publisherCount > 0 ? h.publisherCount : undefined;
+      return { ...lead, reportCount, ...(publisherCount ? { publisherCount } : {}), show: showOf(lead.title, lead.link, lead.publisher, { publishers: publisherCount, reports: reportCount }) };
+    });
   type StoryOut = ReturnType<typeof storyOut>[number];
 
   tool('top_stories', readOnly, async ({ country, limit, after, story }) => {
     if (story) {
-      // Every publisher of one story: a report is where it was published, with its link and language.
+      // Every publisher of one story: a report is where it was published, with its headline, link and language.
       const got = need(await ask<ReportsPage>(graphql, 'GetNewsClusterForArticle', STORY_REPORTS, { articleId: story, first: REPORTS_PER_STORY, after: after ?? null }), 'top_stories', !!after).newsClusterForArticle;
-      const reports = (got?.articles.articles ?? []).flatMap(newsOut).map((r) => ({ publisher: r.publisher, link: r.link, language: r.language }));
+      const reports = (got?.articles.articles ?? []).flatMap(newsOut).map((r) => ({ title: r.title, publisher: r.publisher, link: r.link, language: r.language, show: showOf(r.title, r.link, r.publisher) }));
       const pi = got?.articles.pageInfo;
-      return ok({ story, reportCount: got?.clusterSize ?? reports.length, reports, ...(pi?.hasNextPage && pi.endCursor ? { nextCursor: pi.endCursor } : {}) }, estimate);
+      return ok({ story, reportCount: got?.clusterSize ?? reports.length, reports, ...(pi?.hasNextPage && pi.endCursor ? { nextCursor: pi.endCursor } : {}), next: nextOf(false) }, estimate);
     }
-    const p = after ? decode('top_stories', country ?? '', after) : start('top_stories', country ?? '', limit);
+    let p = after ? decode('top_stories', country ?? '', after) : start('top_stories', country ?? '', limit);
     const args = country ? { country } : {};
-    const scope = { scope: country ?? 'world', windowHours: 24, show: showAsGiven };
     const reply = (k: { s: StoryOut }[], cut: boolean, tail: object) => ({
-      ...scope,
+      scope: country ?? 'world',
+      windowHours: 24,
       summary: { stories: k.length, reports: k.reduce((n, x) => n + x.s.reportCount, 0) },
       stories: k.map((x) => x.s),
       ...(cut ? { truncated: true } : {}),
       ...tail,
     });
     const rowsFrom = (headlines: Headline[]) => headlines.flatMap((h, i) => storyOut(h).map((s) => ({ s, i })));
-    if (!old.has('top_stories')) {
-      const a = await ask<Headlines>(graphql, 'GetTopHeadlinesForCountry', TOP_PAGE, { countryCode: country ?? null, first: Math.min(p.r, PER_REPLY), after: p.c });
-      if (!OLD_SERVER.has(a.code ?? '')) {
-        const page = need(a, 'top_stories', !!after).topHeadlinesForCountry;
-        const rows = rowsFrom(page.headlines).slice(0, p.r);
-        const tail = (k: typeof rows, cut: boolean) => {
-          const r = p.r - k.length;
-          // A cut page goes on from its last kept headline's own cursor; a whole one from the page's end.
-          const c = cut ? (k.length ? page.headlines[k.at(-1)!.i].cursor : undefined) : page.pageInfo.hasNextPage ? page.pageInfo.endCursor : undefined;
-          return r > 0 && c ? more('top_stories', args, 'after', { ...p, c, r }) : {};
-        };
-        const { kept, cut } = fit(rows, (k, c) => reply(k, c, tail(k, c)), estimate);
-        return ok(reply(kept, cut, tail(kept, cut)), estimate);
-      }
-      old.add('top_stories');
+    const get = (query: string, first: number) => ask<Headlines>(graphql, 'GetTopHeadlinesForCountry', query, { countryCode: country ?? null, first, after: p.c });
+    let a = old.has('top_stories') ? undefined : await get(TOP_PAGE, Math.min(p.r, PER_REPLY));
+    // A headline's own cursor names its edition: when the edition was made again since, the list starts again from the top.
+    let restarted: string | undefined;
+    if (a?.code === 'EDITION_CHANGED' && p.c) {
+      p = { ...p, c: null };
+      restarted = EDITION_RESTARTED;
+      a = await get(TOP_PAGE, Math.min(p.r, PER_REPLY));
     }
-    if (after) throw cannotPage('top_stories');
-    const a = await ask<Headlines>(graphql, 'GetTopHeadlinesForCountry', TOP_STORIES, { countryCode: country ?? null, first: Math.min(limit, PER_REPLY), after: null });
-    const page = need(a, 'top_stories', false).topHeadlinesForCountry;
-    const rows = rowsFrom(page.headlines);
-    const tail = (k: typeof rows, cut: boolean) => (limit > k.length && (cut || page.pageInfo.hasNextPage) ? { next: OLD_SERVER_NEXT } : {});
+    if (a && OLD_SERVER.has(a.code ?? '')) (old.add('top_stories'), (a = undefined));
+    // An older news server pages by its page-end cursor, so a cut page is asked again for only the headlines kept.
+    const older = !a;
+    const page = need(a ?? (await get(TOP_STORIES, Math.min(p.r, PER_REPLY))), 'top_stories', !!after).topHeadlinesForCountry;
+    const rows = rowsFrom(page.headlines).slice(0, p.r);
+    const end = page.pageInfo.endCursor ?? undefined;
+    const tail = (k: typeof rows, cut: boolean, again?: string) => {
+      const r = p.r - k.length;
+      // Every page goes on from its last headline's own cursor, which carries the edition; an older server's from its page end.
+      const c = older ? (cut ? (again ?? end) : page.pageInfo.hasNextPage ? end : undefined) : cut ? (k.length ? page.headlines[k.at(-1)!.i].cursor : undefined) : page.pageInfo.hasNextPage ? (page.headlines.at(-1)?.cursor ?? end) : undefined;
+      return pagingOf(true, r > 0 && c ? more('top_stories', args, 'after', { ...p, c, r }) : undefined, restarted);
+    };
     const { kept, cut } = fit(rows, (k, c) => reply(k, c, tail(k, c)), estimate);
-    return ok(reply(kept, cut, tail(kept, cut)), estimate);
+    const again = older && cut && kept.length ? (need(await get(TOP_STORIES, kept.at(-1)!.i + 1), 'top_stories', !!after).topHeadlinesForCountry.pageInfo.endCursor ?? undefined) : undefined;
+    return ok(reply(kept, cut, tail(kept, cut, again)), estimate);
   });
 
   // Not read-only: the unjudged stories it returns are recorded, and wait 72 hours before a later run returns them.
   tool('news_for_profile', writes, async ({ after, limit }) => {
     const p = after ? decode('news_for_profile', '', after) : start('news_for_profile', '', limit);
     const first = !after;
-    const page = await services.stories.forProfile({
-      ...(p.c ? { after: p.c } : {}),
-      limit: Math.min(p.r, PER_REPLY),
-      // The services cut the page until the whole reply fits, and record only the stories returned.
-      fits: (stories, summary) => within(JSON.stringify(profileNews({ summary, stories, shownBefore: 0 }, first)), estimate, ENVELOPE_TOKENS),
+    const read = (limit: number) =>
+      services.stories.forProfile({
+        ...(p.c ? { after: p.c } : {}),
+        limit,
+        // The services cut the page until the whole reply fits, and record only the stories returned.
+        fits: (stories, summary) => within(JSON.stringify(profileNews({ summary, stories, shownBefore: 0 }, first)), estimate, ENVELOPE_TOKENS),
+      });
+    const most = old.has('news_for_profile') ? OLD_POD_MAX : PER_REPLY;
+    const page = await read(Math.min(p.r, most)).catch((e) => {
+      // An older pod takes pages of up to 50: ask it for that, and keep to it for the life of the process.
+      if (!(saysCode(e) && e.code === 'bad_input' && Math.min(p.r, most) > OLD_POD_MAX)) throw e;
+      old.add('news_for_profile');
+      return read(OLD_POD_MAX);
     });
     const r = p.r - page.stories.length;
     return ok(profileNews(page, first, page.nextCursor && r > 0 ? more('news_for_profile', {}, 'after', { ...p, c: page.nextCursor, r }) : undefined), estimate);
   });
 
   tool('rate_stories', writes, async ({ stories }) => {
-    const result = await services.stories.judge(stories);
+    const result = await services.stories.judge(stories).catch(async (e) => {
+      // An older pod takes 50 verdicts a call. A verdict saved twice keeps its first, so a retry is safe.
+      if (!(saysCode(e) && e.code === 'bad_input' && stories.length > OLD_POD_MAX)) throw e;
+      const parts: JudgeResult[] = [];
+      for (let i = 0; i < stories.length; i += OLD_POD_MAX) parts.push(await services.stories.judge(stories.slice(i, i + OLD_POD_MAX)));
+      return { saved: parts.flatMap((x) => x.saved), already: parts.flatMap((x) => x.already), refused: parts.flatMap((x) => x.refused) };
+    });
     const grounded = result.refused.filter((r) => r.code === 'reason_not_grounded');
     const gone = result.refused.some((r) => r.code === 'not_available') ? 'Stories refused as not_available were muted or already read: show them as left out and do not rate them again.' : '';
     const note = [

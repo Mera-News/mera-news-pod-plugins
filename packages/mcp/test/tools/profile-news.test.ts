@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { PodServices, ProfileStory, StoriesSummary } from 'mera-news-pod/plugin-api';
-import { fakeServices, json, run, status, walk } from './helpers';
+import { assertShow, fakeServices, json, run, status, walk } from './helpers';
 
 const summary = (over: Partial<StoriesSummary> = {}): StoriesSummary => ({
   windowHours: 48,
@@ -67,11 +67,11 @@ test('news_for_profile: the summary numbers, the stories still to judge by fact,
     assert.deepEqual(s.asked, [{ after: undefined, limit: 20, peek: undefined }], 'the assistant reads without peek, so what it saw is recorded');
     assert.deepEqual(page.summary, summary());
     assert.deepEqual(page.toJudge, [
-      { factId: 'f1', fact: 'Lives in Utrecht', stories: [{ id: 'a2', title: 'Verhaal a2', title_en: 'Story a2', link: 'https://news.example/a2', publisher: 'De Krant', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2 }] },
-      { factId: 'f2', fact: 'Works as a nurse', stories: [{ id: 'a4', title: 'Verhaal a4', title_en: 'Story a4', link: 'https://news.example/a4', publisher: 'De Krant', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2, alsoFacts: ['Lives in Utrecht'] }] },
+      { factId: 'f1', fact: 'Lives in Utrecht', stories: [{ id: 'a2', title: 'Verhaal a2', title_en: 'Story a2', link: 'https://news.example/a2', publisher: 'De Krant', show: '[Verhaal a2](https://news.example/a2) · De Krant +1 report', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2 }] },
+      { factId: 'f2', fact: 'Works as a nurse', stories: [{ id: 'a4', title: 'Verhaal a4', title_en: 'Story a4', link: 'https://news.example/a4', publisher: 'De Krant', show: '[Verhaal a4](https://news.example/a4) · De Krant +1 report', publishedAt: '2026-01-01T00:00:00.000Z', language: 'nl', reports: 2, alsoFacts: ['Lives in Utrecht'] }] },
     ]);
-    assert.deepEqual(page.picked, [{ id: 'a1', title: 'Verhaal a1', title_en: 'Story a1', link: 'https://news.example/a1', publisher: 'De Krant', level: 'high', reason: 'Utrecht council votes on your street.', facts: ['Lives in Utrecht'] }]);
-    assert.deepEqual(page.leftOut, [{ id: 'a3', title: 'Verhaal a3', title_en: 'Story a3', link: 'https://news.example/a3', publisher: 'De Krant', reason: 'A council far from you.', facts: ['Lives in Utrecht'] }]);
+    assert.deepEqual(page.picked, [{ id: 'a1', title: 'Verhaal a1', title_en: 'Story a1', link: 'https://news.example/a1', publisher: 'De Krant', show: '[Verhaal a1](https://news.example/a1) · De Krant +1 report', level: 'high', reason: 'Utrecht council votes on your street.', facts: ['Lives in Utrecht'] }]);
+    assert.deepEqual(page.leftOut, [{ id: 'a3', title: 'Verhaal a3', title_en: 'Story a3', link: 'https://news.example/a3', publisher: 'De Krant', show: '[Verhaal a3](https://news.example/a3) · De Krant +1 report', reason: 'A council far from you.', facts: ['Lives in Utrecht'] }]);
     assert.equal(page.nextCursor, undefined);
     assert.match(page.next, /^This is the last page\. Judge every story in toJudge, on every page, with rate_stories/);
     assert.doesNotMatch(JSON.stringify(page), /img\.example/, 'no image address for the assistant');
@@ -89,7 +89,8 @@ test('news_for_profile: a page cut to fit continues by cursor, so every page tog
     const { seen } = await walk(await r.client(), 'news_for_profile', { limit: 60 }, (page) => (pages.push(page), page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id))), 60);
     assert.ok(pages.length > 1);
     assert.ok(pages.some((p, i) => i < pages.length - 1 && p.toJudge[0].stories.length < 60), 'a page was cut below what was asked for');
-    for (const p of pages.slice(0, -1)) assert.match(p.next, /^Read every page before you pick or answer\. Call news_for_profile with /);
+    for (const p of pages.slice(0, -1)) assert.match(p.next, /^Read every page before you pick or answer\. Show each story by its show line, .* Call news_for_profile with /);
+    for (const p of pages) for (const g of p.toJudge) for (const x of g.stories) assertShow(x);
     assert.match(pages.at(-1).next, /^This is the last page\./);
     assert.deepEqual(seen, many.map((m) => m.id));
     assert.deepEqual([pages[0].summary.topics, pages[0].summary.facts], [summary().topics, summary().facts]);
@@ -120,7 +121,7 @@ test('rate_stories: passes each verdict to the pod, and asks again for a pick wh
     assert.deepEqual(res.refused, [{ id: 'a4', code: 'reason_not_grounded', message: 'No word from the headline.' }, { id: 'a5', code: 'not_available', message: 'Muted.' }]);
     assert.match(res.note, /Call rate_stories again for those/);
     assert.match(res.note, /muted or already read: show them as left out and do not rate them again/);
-    for (const bad of [{ stories: [] }, { stories: [{ id: 'a', verdict: 'maybe', reason: 'x' }] }, { stories: [{ id: 'a', verdict: 'picked', level: 'urgent', reason: 'x' }] }, { stories: Array(51).fill({ id: 'a', verdict: 'left_out', reason: 'x' }) }]) {
+    for (const bad of [{ stories: [] }, { stories: [{ id: 'a', verdict: 'maybe', reason: 'x' }] }, { stories: [{ id: 'a', verdict: 'picked', level: 'urgent', reason: 'x' }] }, { stories: Array(501).fill({ id: 'a', verdict: 'left_out', reason: 'x' }) }]) {
       assert.equal(json(await c.callTool({ name: 'rate_stories', arguments: bad })).code, 'bad_input');
     }
     // The pod's own refusal keeps its code and next step.
@@ -131,6 +132,47 @@ test('rate_stories: passes each verdict to the pod, and asks again for a pick wh
     } finally {
       await refusing.stop();
     }
+  } finally {
+    await r.stop();
+  }
+});
+
+test('rate_stories: up to 500 verdicts go to the pod in one call; an older pod that takes 50 gets them 50 at a time', async () => {
+  const verdicts = Array.from({ length: 120 }, (_, i) => ({ id: `s${i}`, verdict: 'left_out', reason: 'Far away.' }));
+  for (const cap of [500, 50]) {
+    const sizes: number[] = [];
+    const judge: PodServices['stories']['judge'] = async (v) => {
+      sizes.push(v.length);
+      if (v.length > cap) throw Object.assign(new Error(`Pass 1 to ${cap} verdicts.`), { code: 'bad_input', next: 'pass fewer verdicts' });
+      return { saved: v.map((x) => ({ id: x.id, verdict: x.verdict })), already: [], refused: [] };
+    };
+    const r = await run({ services: fakeServices({ stories: { judge } }) });
+    try {
+      const res = json(await (await r.client()).callTool({ name: 'rate_stories', arguments: { stories: verdicts } }));
+      assert.equal(res.saved.length, 120, JSON.stringify(res).slice(0, 200));
+      assert.deepEqual(sizes, cap === 500 ? [120] : [120, 50, 50, 20]);
+    } finally {
+      await r.stop();
+    }
+  }
+});
+
+test('news_for_profile: an older pod that refuses a page over 50 is asked for 50, and only 50 from then on', async () => {
+  const all = Array.from({ length: 120 }, (_, i) => story(`o${i}`));
+  const s = pagedStories(all);
+  const older = s.stories.forProfile;
+  const forProfile: PodServices['stories']['forProfile'] = async (o = {}) => {
+    if ((o.limit ?? 20) > 50) {
+      s.asked.push({ after: o.after, limit: o.limit, peek: o.peek });
+      throw Object.assign(new Error('limit must be a whole number from 0 to 50.'), { code: 'bad_input', next: 'pass a smaller limit' });
+    }
+    return older(o);
+  };
+  const r = await run({ services: fakeServices({ stories: { ...s.stories, forProfile } }) });
+  try {
+    const { seen } = await walk(await r.client(), 'news_for_profile', { limit: 120 }, (page) => page.toJudge.flatMap((g: any) => g.stories.map((x: any) => x.id)), 120);
+    assert.deepEqual(seen, all.map((x) => x.id));
+    assert.deepEqual(s.asked.map((a) => a.limit), [100, 50, 50, 20], 'refused once, then never over 50');
   } finally {
     await r.stop();
   }
