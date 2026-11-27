@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { PickView, PluginContext, PodStatus, ProfileSetup, ProfileStory, ProfileView, StoriesSummary } from 'mera-news-pod/plugin-api';
 import { z } from 'zod';
 import { DIGEST_FILE, HINT_FILE, hintOf, isDue, lastMoment, MISSED_AFTER_MS, readJson, serially, TIME, writeJson, type DigestSchedule } from './digest';
+import { CARD_MIME, CARD_TOOLS, CARD_URI, cardHtml } from './card';
 import { siteLink } from './link';
 import { fail, fit, ok, TARGET_TOKENS } from './reply';
 import { descriptions, instructions, newsOnlyLine, prompts } from './text';
@@ -144,7 +145,7 @@ class NewsError extends Error {
 
 /** One news query. The store's own error text never reaches the reply. */
 const KEY_FIX =
-  "ask the person to paste the key from Mera Labs into the Mera News extension or plugin settings in their AI app (for a pod they run themselves: dataApiKey in secrets.json in the pod's folder), then start a new conversation; never ask them to paste the key in the chat";
+  "ask the person to paste a Mera News key (they ask for one at https://mera.news/en/api-key) into the Mera News extension or plugin settings in their AI app, or to set News server address there to a news server they run (for a pod they run themselves: dataApiKey in secrets.json in the pod's folder), then start a new conversation; never ask them to paste the key in the chat";
 
 const SITE_FIX =
   'tell the person they can turn on "Also run the Mera News website on this computer" in the Mera News extension or plugin settings of their AI app, then restart the app; a person who runs their own pod adds the web plugin to pod.json and restarts it';
@@ -220,8 +221,8 @@ function profileNews(page: { run: string; summary: StoriesSummary; stories: Prof
   const next = page.nextCursor
     ? 'Read every page before you pick or answer: call news_for_profile again with after set to nextCursor.'
     : summary.unjudged > 0
-      ? 'This is the last page. Judge every story in toJudge, on every page, with rate_stories: picked, with a level and one sentence on why it matters to the person, or left_out, with one short reason. Then show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its link and its reason.'
-      : 'This is the last page, and every story is judged. Show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its link and its reason.';
+      ? 'This is the last page. Judge every story in toJudge, on every page, with rate_stories: picked, with a level and one sentence on why it matters to the person, or left_out, with one short reason. Then show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its publisher, its link and its reason.'
+      : 'This is the last page, and every story is judged. Show the summary numbers, the picks by level with emergency first, and everything left out, each with its title, its publisher, its link and its reason.';
   return {
     summary,
     toJudge: [...toJudge.values()],
@@ -272,13 +273,18 @@ export function buildServer(ctx: McpContext): McpServer {
       () => undefined,
     );
   const server = new McpServer({ name: 'mera-news-pod-mcp', version: '0.1.0' }, { instructions });
+  server.registerResource('news-card', CARD_URI, { title: 'Mera News stories', mimeType: CARD_MIME }, () => ({
+    contents: [{ uri: CARD_URI, mimeType: CARD_MIME, text: cardHtml, _meta: { ui: { prefersBorder: false } } }],
+  }));
 
   function tool<K extends keyof typeof schemas>(
     name: K,
     annotations: ToolAnnotations,
     run: (input: z.output<(typeof schemas)[K]>) => Promise<CallToolResult>,
   ) {
-    server.registerTool(name, { description: descriptions[name], inputSchema: advertise(schemas[name]), annotations }, async (raw: unknown) => {
+    // A tool in CARD_TOOLS names the news card, which apps that draw MCP Apps show under the reply.
+    const _meta = CARD_TOOLS.has(name) ? { ui: { resourceUri: CARD_URI } } : undefined;
+    server.registerTool(name, { description: descriptions[name], inputSchema: advertise(schemas[name]), annotations, ...(_meta ? { _meta } : {}) }, async (raw: unknown) => {
       const parsed = schemas[name].safeParse(raw);
       if (!parsed.success) {
         const field = parsed.error.issues[0]?.path.join('.') || 'input';
@@ -467,7 +473,7 @@ export function buildServer(ctx: McpContext): McpServer {
     const note = [
       grounded.length
         ? 'Some picks were not saved: their reason shares no word with the headline. Call rate_stories again for those with a reason that names something the headline says.'
-        : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its link and its reason.',
+        : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its publisher, its link and its reason.',
       gone,
     ].filter(Boolean).join(' ');
     return ok({ ...result, note }, estimate);

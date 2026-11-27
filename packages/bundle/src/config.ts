@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-/** Mera News' own news server. A key from Mera Labs unlocks it. */
+/** Mera News' own news server. A key from https://mera.news/en/api-key unlocks it. */
 export const MERA_NEWS_DATA_SERVER = 'https://api.mera.news';
 export const MCP_FILE = 'mcp-plugin.cjs';
 export const WEB_FILE = 'web-plugin.cjs';

@@ -7,7 +7,7 @@ stops when it closes, unless you [keep it running](#keep-mera-news-running-macos
 First choose where the news comes from:
 
 - **From Mera News** (`api.mera.news`), the quickest: ask for a key with the form at
-  https://mera.news/api-key (it arrives by email and is a test key: 2,000 requests a day, for your own use), install the plugin and paste the key into "News key".
+  https://mera.news/en/api-key (it arrives by email and is a test key: 2,000 requests a day, for your own use), install the plugin and paste the key into "News key".
   Never paste the key into a chat.
 - **From your own news server:** set up the
   [data server](https://github.com/Mera-News/mera-news-data-server/blob/main/docs/self-host.md), then
@@ -31,7 +31,7 @@ you are away need an AI service, added on the website's You page (see
 
 The Claude Desktop install dialog, and Claude Code when it installs the plugin, ask for three settings:
 
-- **News key** (optional): for Mera News, a key from the form at https://mera.news/api-key. For your own news server, the key
+- **News key** (optional): for Mera News, a key from the form at https://mera.news/en/api-key. For your own news server, the key
   you set on it (`MERA_NEWS_API_KEY`), or nothing if it needs none, as the one-computer setup does.
   A server setup in open mode, with no key, refuses search, so give it a key for the pod.
 - **News server address** (optional): empty uses Mera News. An address, such as
