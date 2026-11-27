@@ -101,6 +101,23 @@ test('top stories: one page for the world or a country, the named fields only, w
   });
 });
 
+test('top stories: a page cursor from an edition made again since starts the list again from page 1, with a note', async () => {
+  const { calls, news: n } = news({
+    GetTopHeadlinesForCountry: (b) =>
+      b.variables.after ? { errors: [{ message: 'edition 7 is gone', extensions: { code: 'EDITION_CHANGED' } }] } : { data: { topHeadlinesForCountry: { headlines: [headline('a', 2)], pageInfo: { endCursor: 'e.8', hasNextPage: true } } } },
+  });
+  const { r, get } = await signedIn({ news: n });
+  await using(r, async () => {
+    const res = await get('/api/top/?c=GLOBAL&after=e.7');
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.stories.map((s: { id: string }) => s.id), ['a']);
+    assert.equal(res.body.nextCursor, 'e.8');
+    assert.equal(res.body.note, 'The top stories were made again, so this list starts again from the top.');
+    assert.deepEqual(calls.filter((c) => c.operationName === 'GetTopHeadlinesForCountry').map((c) => c.variables.after), ['e.7', null]);
+    assert.doesNotMatch(JSON.stringify(res.body), /edition 7/);
+  });
+});
+
 test("the server's own page token passes: base64 with padding, plus and slash", async () => {
   const { calls, news: n } = news({
     GetTopHeadlinesForCountry: () => ({ data: { topHeadlinesForCountry: { headlines: [], pageInfo: { endCursor: null, hasNextPage: false } } } }),

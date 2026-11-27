@@ -80,6 +80,7 @@ async function ask<T>(services: Services, operationName: string, query: string, 
   const code = reply.errors?.[0]?.extensions?.code;
   // The server's own text never reaches the page.
   if (code === 'UNAUTHENTICATED') throw new NewsError('key_refused', 'Mera News refused the key, or no key is set.', KEY_NEXT);
+  if (code === 'EDITION_CHANGED') throw new NewsError('edition_changed', 'The top stories were made again.', 'Reload the page to start again.');
   if (code === 'BAD_USER_INPUT') throw new NewsError('bad_input', 'This page of news has expired.', 'Reload the page to start again.');
   throw new NewsError('news_unavailable', 'The news server could not answer.', 'Try again in a minute.');
 }
@@ -136,12 +137,20 @@ const cursorOf = (p: { endCursor?: string | null; hasNextPage?: boolean } | unde
 /** One page of the most reported stories, for the world (GLOBAL) or one alpha-3 country. */
 export async function topStories(services: Services, country: string, after: string | null) {
   type Reply = { topHeadlinesForCountry: { headlines: { clusterSize?: number | null; article: ArticleIn }[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } } };
+  const page = (after: string | null) => ask<Reply>(services, 'GetTopHeadlinesForCountry', TOP, { countryCode: country === 'GLOBAL' ? null : country, first: STORIES_PER_PAGE, after });
+  // A cursor names its edition: when the edition was made again since, the list starts again from page 1.
+  let restarted = false;
   const got = (
-    await ask<Reply>(services, 'GetTopHeadlinesForCountry', TOP, { countryCode: country === 'GLOBAL' ? null : country, first: STORIES_PER_PAGE, after })
+    await page(after).catch((e) => {
+      if (!(after && e instanceof NewsError && e.code === 'edition_changed')) throw e;
+      restarted = true;
+      return page(null);
+    })
   ).topHeadlinesForCountry;
   return {
     stories: await withEnglish(services, got.headlines.flatMap((h) => storyOut(h.article, h.clusterSize ?? 1) ?? [])),
     nextCursor: cursorOf(got.pageInfo),
+    ...(restarted ? { note: 'The top stories were made again, so this list starts again from the top.' } : {}),
   };
 }
 

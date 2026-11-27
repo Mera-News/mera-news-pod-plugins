@@ -151,9 +151,11 @@ test('news tools: a store error becomes news_unavailable without its text; a bad
   // A cursor of the tool's own that the server refuses is bad_input too, without the server's text.
   const first = stub(() => ({ data: { articlesForCountry: { articles: [article('a')], itemCursors: ['ca'], pageInfo: { endCursor: 'ca', hasNextPage: true } } } }));
   const mine = json(await callWith(first.services, 'latest_news', { limit: 2 })).nextCursor;
-  const res = json(await callWith(cursor.services, 'latest_news', { after: mine }));
-  assert.equal(res.code, 'bad_input');
-  assert.doesNotMatch(JSON.stringify(res), /not a cursor/);
+  for (const code of ['BAD_USER_INPUT', 'BAD_REQUEST']) {
+    const refusing = stub(() => ({ errors: [{ message: 'after is not a cursor', extensions: { code } }] }));
+    const res = json(await callWith(refusing.services, 'latest_news', { after: mine }));
+    assert.deepEqual(res, { code: 'bad_input', message: 'The field "after" is not valid for latest_news.', next: 'call latest_news again without "after"' }, code);
+  }
   // Without a cursor the same code is the server's fault, not the caller's.
   assert.equal(json(await callWith(cursor.services, 'latest_news', {})).code, 'news_unavailable');
 });

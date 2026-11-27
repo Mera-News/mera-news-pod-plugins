@@ -22,7 +22,9 @@ test('publishers: the server instructions over HTTP carry the notice, and each a
     assert.ok(said.includes(SHOW_RULE), 'the instructions ask for every story by its show line');
     assert.ok(said.includes(VERBATIM), 'the instructions forbid rewriting a headline');
     assert.match(said, /never re-rank them, sort them by number of reports or leave one out/);
-    assert.match(said, /A number of reports or publishers is only ever the one the show line gives/);
+    assert.match(said, /Never add a count the show line does not give/);
+    // Only top stories know publishers; search, newest and picks show reports only where counted.
+    assert.match(said, /with \+N publications or \+N reports only when the count is known/);
     const { tools } = await c.listTools();
     for (const name of ARTICLE_TOOLS) {
       const tool = tools.find((t) => t.name === name);

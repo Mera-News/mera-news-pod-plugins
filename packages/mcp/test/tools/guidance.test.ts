@@ -60,6 +60,24 @@ test('a show line: the headline and link always parse as a markdown link, then t
   assert.equal(showOf('One\n two', 'https://x.example/1', ''), '[One two](https://x.example/1) · x.example', 'no publisher name: its site');
 });
 
+test('a show line from hostile titles, publishers and links stays one markdown link, the same URL and one line', () => {
+  // A publisher name can never form a link, emphasis or code, nor end the line.
+  assert.equal(showOf('A', 'https://x.example/1', '[Click](https://evil.example) *b* _i_ `c` <img> \\'), '[A](https://x.example/1) · \\[Click\\](https://evil.example) \\*b\\* \\_i\\_ \\`c\\` \\<img\\> \\\\');
+  // A headline cannot close the brackets, open code or a tag.
+  assert.equal(showOf('Ends ](https://evil.example) `x` <b>', 'https://x.example/1', 'P'), '[Ends \\](https://evil.example) \\`x\\` \\<b\\>](https://x.example/1) · P');
+  assert.equal(showOf('Back\\', 'https://x.example/a\\', 'P'), '[Back\\\\](https://x.example/a%5C) · P', 'a trailing backslash escapes nothing');
+  // An ideographic space and other unsafe characters are encoded from their UTF-8 bytes, so the link stays the same URL.
+  const odd = 'https://x.example/a\u3000b(c)<d>';
+  const shown = showOf('T', odd, 'P');
+  assert.equal(shown, '[T](https://x.example/a%E3%80%80b%28c%29%3Cd%3E) · P');
+  assert.equal(decodeURIComponent(/\]\((.*)\) · /.exec(shown)![1]), odd);
+  assert.equal(showOf('T', 'https://x.example/caf\u00e9', 'P'), '[T](https://x.example/caf\u00e9) · P', 'a letter outside ASCII is left as it is');
+  // An empty headline never gives empty brackets: the English one, then the publisher, then the site.
+  assert.equal(showOf('  ', 'https://x.example/1', 'P', { titleEn: 'English [one]' }), '[English \\[one\\]](https://x.example/1) · P');
+  assert.equal(showOf('', 'https://x.example/1', 'The *Paper*'), '[The *Paper*](https://x.example/1) · The \\*Paper\\*');
+  assert.equal(showOf('', 'https://news.example/1', ''), '[news.example](https://news.example/1) · news.example');
+});
+
 test('get_status with no AI service says the assistant fetches the news, never that reading is paused', async () => {
   const r = await run({ services: fakeServices({ reading: { status: async () => status({ ai: null, reading: 'paused' }) } }) });
   try {

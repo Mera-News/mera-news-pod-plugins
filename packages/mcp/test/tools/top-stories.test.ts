@@ -97,12 +97,59 @@ test('top_stories: every publisher of one story, a page at a time, when the pers
       },
     };
   });
-  const rest = json(await call(services, { story: 'big', after: 'r25' }));
-  assert.deepEqual(calls.map((c) => c.operationName), ['GetNewsClusterForArticle']);
-  assert.deepEqual(calls.at(-1)!.variables, { articleId: 'big', first: 25, after: 'r25' });
-  const { next, ...data } = rest;
-  assert.deepEqual(data, { story: 'big', reportCount: 60, reports: [{ title: 'Titel r26', publisher: 'Paper r26', link: 'https://news.example/r26', language: 'nl', show: '[Titel r26](https://news.example/r26) · Paper r26' }], nextCursor: 'r50' });
-  assert.match(next, /Show each story by its show line/);
+  const r = await run({ services });
+  try {
+    const c = await r.client();
+    const first = json(await c.callTool({ name: 'top_stories', arguments: { story: 'big', limit: 60 } }));
+    assert.deepEqual(calls.at(-1)!.variables, { articleId: 'big', first: 25, after: null });
+    assert.equal(first.remaining, 59);
+    assert.match(first.next, /Show each story by its show line.* Call top_stories with \{"story":"big","after":"[^"]+"\}: 59 of the 60 asked for are still to come\.$/);
+    const { next, nextCursor, ...data } = json(await c.callTool({ name: 'top_stories', arguments: { story: 'big', after: first.nextCursor } }));
+    assert.deepEqual(calls.map((c) => c.operationName), ['GetNewsClusterForArticle', 'GetNewsClusterForArticle']);
+    assert.deepEqual(calls.at(-1)!.variables, { articleId: 'big', first: 25, after: 'r25' });
+    assert.deepEqual(data, { story: 'big', reportCount: 60, reports: [{ title: 'Titel r26', publisher: 'Paper r26', link: 'https://news.example/r26', language: 'nl', show: '[Titel r26](https://news.example/r26) · Paper r26' }], remaining: 58 });
+    assert.match(next, /Show each story by its show line/);
+    assert.ok(nextCursor);
+    // A cursor made for another story is refused.
+    assert.equal(json(await c.callTool({ name: 'top_stories', arguments: { story: 'other', after: first.nextCursor } })).code, 'bad_input');
+  } finally {
+    await r.stop();
+  }
+});
+
+test('top_stories: a story whose reports do not fit one reply keeps what fits and goes on right after the last one kept', async () => {
+  const long = 'x'.repeat(480);
+  const reps = Array.from({ length: 25 }, (_, i) => article(`r${i}`, { title: `${long} ${i}`, article_url: `https://news.example/${'p'.repeat(1900)}/${i}` }));
+  const { calls, services } = stub((b) => ({ data: { newsClusterForArticle: { clusterSize: 25, articles: { articles: reps.slice(0, b.variables.first), pageInfo: { endCursor: `end${b.variables.first}`, hasNextPage: b.variables.first < 25 } } } } }));
+  const r = await run({ services });
+  try {
+    const c = await r.client();
+    const body = json(await c.callTool({ name: 'top_stories', arguments: { story: 'r0', limit: 25 } }));
+    const kept = body.reports.length;
+    assert.equal(body.truncated, true);
+    assert.ok(kept >= 1 && kept < 25, `kept ${kept}`);
+    assert.equal(body.remaining, 25 - kept);
+    assert.deepEqual(calls.map((x) => x.variables.first), [25, kept], 'asked again for only the reports kept, for their cursor');
+    await c.callTool({ name: 'top_stories', arguments: { story: 'r0', after: body.nextCursor } });
+    assert.deepEqual(calls[2].variables, { articleId: 'r0', first: 25 - kept, after: `end${kept}` });
+  } finally {
+    await r.stop();
+  }
+});
+
+test('top_stories: a refused page cursor, as BAD_USER_INPUT or BAD_REQUEST, is the tool\'s own bad cursor answer', async () => {
+  for (const code of ['BAD_USER_INPUT', 'BAD_REQUEST']) {
+    const { services } = stub((b) => (b.variables.after ? { errors: [{ message: 'cursor junk', extensions: { code } }] } : { data: { newsClusterForArticle: { clusterSize: 2, articles: { articles: [article('a')], pageInfo: { endCursor: 'e', hasNextPage: true } } } } }));
+    const r = await run({ services });
+    try {
+      const c = await r.client();
+      const first = json(await c.callTool({ name: 'top_stories', arguments: { story: 'a', limit: 5 } }));
+      const res = json(await c.callTool({ name: 'top_stories', arguments: { story: 'a', after: first.nextCursor } }));
+      assert.deepEqual(res, { code: 'bad_input', message: 'The field "after" is not valid for top_stories.', next: 'call top_stories again without "after"' }, code);
+    } finally {
+      await r.stop();
+    }
+  }
 });
 
 test('top_stories: a page too large for one reply keeps every story it can and goes on from the last kept headline\'s own cursor', async () => {

@@ -141,6 +141,13 @@ const BY_IDS_MAX = 50;
 const MEMBERSHIPS_MAX = 500;
 /** What an older pod takes: 50 stories a news_for_profile page, 50 verdicts a rate_stories call. */
 const OLD_POD_MAX = 50;
+// The older pod's own refusals of those caps, word for word: any other bad_input is the caller's to fix.
+const OLD_POD_PAGE = 'limit must be a whole number from 0 to 50.';
+const OLD_POD_VERDICTS = 'Pass 1 to 50 verdicts.';
+const oldPodSays = (e: unknown, message: string) => saysCode(e) && e.code === 'bad_input' && e.message === message;
+/** Refusals listed per code in a rate_stories reply, and codes listed, so 500 refusals still fit. */
+const REFUSED_IDS = 10;
+const REFUSED_CODES = 5;
 
 const CLUSTERS = `query ClusterMembershipsForArticles($articleIds: [ID!]!) { clusterMembershipsForArticles(articleIds: $articleIds) { articleId clusters { clusterId stableClusterId confidence } } }`;
 
@@ -191,7 +198,8 @@ const OLD_SERVER = new Set(['GRAPHQL_VALIDATION_FAILED', 'NOT_IN_LOCAL_MODE', 'N
 /** The data of an answer, or the error the tool answers with for its code. */
 function need<T>(a: Answer<T>, tool: string, withCursor: boolean): T {
   if (a.code === undefined) return a.data;
-  if (a.code === 'BAD_USER_INPUT' && withCursor) throw badCursor(tool);
+  // A refused cursor: the data server says BAD_USER_INPUT, some servers in front of it BAD_REQUEST.
+  if ((a.code === 'BAD_USER_INPUT' || a.code === 'BAD_REQUEST') && withCursor) throw badCursor(tool);
   if (a.code === 'EDITION_CHANGED') throw coded('edition_changed', 'The top stories were made again since that page.', `call ${tool} again without "after" for the new top stories; a story already shown can come again`);
   // The news server refuses a key inside an ordinary reply, so this is the one place that can name it.
   if (a.code === 'UNAUTHENTICATED') throw coded('key_refused', 'The Mera News key was refused.', KEY_FIX);
@@ -248,7 +256,7 @@ function withStories(results: NewsOut[], storyOf: Map<string, string>) {
   for (const r of results) if (storyOf.has(r.id)) size.set(storyOf.get(r.id)!, (size.get(storyOf.get(r.id)!) ?? 0) + 1);
   return results.map((r) => {
     const n = size.get(storyOf.get(r.id) ?? '') ?? 0;
-    return { ...r, ...(n > 1 ? { story: storyOf.get(r.id)! } : {}), show: showOf(r.title, r.link, r.publisher, { reports: n }) };
+    return { ...r, ...(n > 1 ? { story: storyOf.get(r.id)! } : {}), show: showOf(r.title, r.link, r.publisher, { reports: n, titleEn: r.title_en }) };
   });
 }
 
@@ -268,7 +276,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * topic and fact lists are the same on every page, so only the first page carries them.
  */
 function profileNews(page: { summary: StoriesSummary; stories: ProfileStory[]; shownBefore: number }, first: boolean, paging?: ReturnType<typeof more>) {
-  const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher, show: showOf(s.title, s.link, s.publisher, { reports: s.reports }) });
+  // Every item carries the reports count its show line uses, so the card shows the same +N.
+  const head = (s: ProfileStory) => ({ id: s.id, title: s.title, ...(s.titleEn ? { title_en: s.titleEn } : {}), link: s.link, publisher: s.publisher, reports: s.reports, show: showOf(s.title, s.link, s.publisher, { reports: s.reports, titleEn: s.titleEn }) });
   const toJudge = new Map<string, { factId: string; fact: string; stories: object[] }>();
   const picked: object[] = [];
   const leftOut: object[] = [];
@@ -277,7 +286,7 @@ function profileNews(page: { summary: StoriesSummary; stories: ProfileStory[]; s
     if (!s.verdict) {
       const f = s.facts[0] ?? { id: '', statement: '' };
       if (!toJudge.has(f.id)) toJudge.set(f.id, { factId: f.id, fact: f.statement, stories: [] });
-      toJudge.get(f.id)!.stories.push({ ...head(s), publishedAt: s.publishedAt, language: s.language, reports: s.reports, ...(facts.length > 1 ? { alsoFacts: facts.slice(1) } : {}) });
+      toJudge.get(f.id)!.stories.push({ ...head(s), publishedAt: s.publishedAt, language: s.language, ...(facts.length > 1 ? { alsoFacts: facts.slice(1) } : {}) });
     } else if (s.verdict.verdict === 'picked') picked.push({ ...head(s), level: s.verdict.level, reason: s.verdict.reason, facts });
     else leftOut.push({ ...head(s), reason: s.verdict.reason, facts });
   }
@@ -545,17 +554,28 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     newsOut(h.article).map(({ language: _, ...lead }) => {
       const reportCount = Math.max(h.clusterSize ?? 1, 1);
       const publisherCount = typeof h.publisherCount === 'number' && h.publisherCount > 0 ? h.publisherCount : undefined;
-      return { ...lead, reportCount, ...(publisherCount ? { publisherCount } : {}), show: showOf(lead.title, lead.link, lead.publisher, { publishers: publisherCount, reports: reportCount }) };
+      return { ...lead, reportCount, ...(publisherCount ? { publisherCount } : {}), show: showOf(lead.title, lead.link, lead.publisher, { publishers: publisherCount, reports: reportCount, titleEn: lead.title_en }) };
     });
   type StoryOut = ReturnType<typeof storyOut>[number];
 
   tool('top_stories', readOnly, async ({ country, limit, after, story }) => {
     if (story) {
       // Every publisher of one story: a report is where it was published, with its headline, link and language.
-      const got = need(await ask<ReportsPage>(graphql, 'GetNewsClusterForArticle', STORY_REPORTS, { articleId: story, first: REPORTS_PER_STORY, after: after ?? null }), 'top_stories', !!after).newsClusterForArticle;
-      const reports = (got?.articles.articles ?? []).flatMap(newsOut).map((r) => ({ title: r.title, publisher: r.publisher, link: r.link, language: r.language, show: showOf(r.title, r.link, r.publisher) }));
+      const p = after ? decode('top_stories', `story:${story}`, after) : start('top_stories', `story:${story}`, limit);
+      const get = (first: number) => ask<ReportsPage>(graphql, 'GetNewsClusterForArticle', STORY_REPORTS, { articleId: story, first, after: p.c });
+      const got = need(await get(Math.min(p.r, REPORTS_PER_STORY)), 'top_stories', !!after).newsClusterForArticle;
+      const rows = rowsOf(got?.articles.articles ?? []);
+      const reports = rows.map(({ r }) => ({ title: r.title, publisher: r.publisher, link: r.link, language: r.language, show: showOf(r.title, r.link, r.publisher, { titleEn: r.title_en }) }));
       const pi = got?.articles.pageInfo;
-      return ok({ story, reportCount: got?.clusterSize ?? reports.length, reports, ...(pi?.hasNextPage && pi.endCursor ? { nextCursor: pi.endCursor } : {}), next: nextOf(false) }, estimate);
+      // The server's cursor ends its whole page, so a cut page is asked again for only the reports kept.
+      const make = (k: typeof reports, cut: boolean, c = pi?.endCursor ?? undefined) => {
+        const r = p.r - k.length;
+        const go = r > 0 && c && (cut || pi?.hasNextPage) ? more('top_stories', { story }, 'after', { ...p, c, r }) : undefined;
+        return { story, reportCount: got?.clusterSize ?? reports.length, reports: k, ...(cut ? { truncated: true } : {}), ...pagingOf(false, go) };
+      };
+      const { kept, cut } = fit(reports, make, estimate);
+      const again = cut && kept.length ? (need(await get(rows[kept.length - 1].i + 1), 'top_stories', !!after).newsClusterForArticle?.articles.pageInfo.endCursor ?? undefined) : undefined;
+      return ok(make(kept, cut, cut ? again : undefined), estimate);
     }
     let p = after ? decode('top_stories', country ?? '', after) : start('top_stories', country ?? '', limit);
     const args = country ? { country } : {};
@@ -608,7 +628,7 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
     const most = old.has('news_for_profile') ? OLD_POD_MAX : PER_REPLY;
     const page = await read(Math.min(p.r, most)).catch((e) => {
       // An older pod takes pages of up to 50: ask it for that, and keep to it for the life of the process.
-      if (!(saysCode(e) && e.code === 'bad_input' && Math.min(p.r, most) > OLD_POD_MAX)) throw e;
+      if (!(oldPodSays(e, OLD_POD_PAGE) && Math.min(p.r, most) > OLD_POD_MAX)) throw e;
       old.add('news_for_profile');
       return read(OLD_POD_MAX);
     });
@@ -619,20 +639,27 @@ export function buildServer(ctx: McpContext, old: Set<string> = new Set()): McpS
   tool('rate_stories', writes, async ({ stories }) => {
     const result = await services.stories.judge(stories).catch(async (e) => {
       // An older pod takes 50 verdicts a call. A verdict saved twice keeps its first, so a retry is safe.
-      if (!(saysCode(e) && e.code === 'bad_input' && stories.length > OLD_POD_MAX)) throw e;
+      if (!(oldPodSays(e, OLD_POD_VERDICTS) && stories.length > OLD_POD_MAX)) throw e;
       const parts: JudgeResult[] = [];
       for (let i = 0; i < stories.length; i += OLD_POD_MAX) parts.push(await services.stories.judge(stories.slice(i, i + OLD_POD_MAX)));
       return { saved: parts.flatMap((x) => x.saved), already: parts.flatMap((x) => x.already), refused: parts.flatMap((x) => x.refused) };
     });
-    const grounded = result.refused.filter((r) => r.code === 'reason_not_grounded');
-    const gone = result.refused.some((r) => r.code === 'not_available') ? 'Stories refused as not_available were muted or already read: show them as left out and do not rate them again.' : '';
+    // Counts, and per refusal code its first ids and one message: 500 verdicts with every id and message would not fit a reply.
+    const byCode = new Map<string, { code: string; count: number; ids: string[]; message: string }>();
+    for (const x of result.refused) {
+      const g = byCode.get(x.code) ?? byCode.set(x.code, { code: String(x.code).slice(0, 40), count: 0, ids: [], message: String(x.message ?? '').slice(0, 300) }).get(x.code)!;
+      g.count++;
+      if (g.ids.length < REFUSED_IDS) g.ids.push(String(x.id).slice(0, 100));
+    }
+    const refused = [...byCode.values()].slice(0, REFUSED_CODES);
     const note = [
-      grounded.length
+      byCode.has('reason_not_grounded')
         ? 'Some picks were not saved: their reason shares no word with the headline. Call rate_stories again for those with a reason that names something the headline says.'
-        : 'Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each with its title, its publisher, its link and its reason.',
-      gone,
+        : `Saved. Each story keeps this verdict, so it is never judged again. When every story is judged, show the person the summary numbers, then the picks by level with emergency first, then everything left out, each by its show line with its reason. ${showNext}`,
+      byCode.has('not_available') ? 'Stories refused as not_available were muted or already read: show them as left out and do not rate them again.' : '',
+      result.refused.length > refused.reduce((n, g) => n + g.ids.length, 0) ? `refused gives each code's count and only its first ${REFUSED_IDS} ids.` : '',
     ].filter(Boolean).join(' ');
-    return ok({ ...result, note }, estimate);
+    return ok({ saved: result.saved.length, already: result.already.length, refused, note }, estimate);
   });
 
   // A pod with no AI service reads only when asked, so it is never shown as paused.

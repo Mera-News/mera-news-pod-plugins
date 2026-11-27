@@ -279,7 +279,7 @@ export function assertShow(s: any, given?: number) {
   assert.ok(m, `a show line: ${JSON.stringify(s)}`);
   assert.equal(m[1].replace(/\\(.)/g, '$1'), s.title.replace(/\s+/g, ' ').trim(), 'the headline, word for word');
   assert.equal(m[2], s.link ?? s.url, 'the link');
-  assert.equal(m[3], s.publisher ?? s.publication, 'the publisher');
+  assert.equal(m[3].replace(/\\(.)/g, '$1'), s.publisher ?? s.publication, 'the publisher');
   const pubs = s.publisherCount ?? 0;
   const others = pubs > 1 ? [pubs - 1, 'publication'] : pubs === 0 && reports > 1 ? [reports - 1, 'report'] : undefined;
   assert.deepEqual(m[4] ? [Number(m[4]), m[5].replace(/s$/, '')] : undefined, others, `the count in ${s.show}`);

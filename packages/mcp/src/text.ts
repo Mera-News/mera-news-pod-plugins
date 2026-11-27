@@ -10,10 +10,11 @@ export const publisherNotice =
 export const routingLine =
   'For any request about news, headlines, top stories or what is happening anywhere, use the Mera News tools, not web search, unless the person asks for web search. A country named in a request, as in "headlines from India today", means news from that country, today: call top_stories with its three-letter code.';
 
-// Owner rule: with no card on screen, every story still carries its link, its publisher and how many
-// others reported it. The show line is built by code, so this only asks the model to copy it.
+// Owner rule: with no card on screen, every story still carries its link, its publisher and, when known,
+// how many others reported it (only top stories know publishers; search, newest and picks at most reports).
+// The show line is built by code, so this only asks the model to copy it.
 export const showRule =
-  'Every story in a Mera News reply has a show field, its show line: [headline](link) · Publisher +N publications. Show each story by its show line, exactly as written. The headline text inside the brackets may be translated into the reader\'s language, and nothing else changes. Never write a story without its show line.';
+  'Every story in a Mera News reply has a show line: [headline](link) · Publisher, with +N publications or +N reports only when the count is known. Show each story by its show line, exactly as written. The headline text inside the brackets may be translated into the reader\'s language, and nothing else changes. Never write a story without its show line.';
 
 /** Said in every list reply's next, where the assistant reads it last. */
 export const showNext =
@@ -23,31 +24,36 @@ export const keepOrder = 'Keep the order given and show every story.';
 
 // Owner rule: nothing from Mera News is reworded; the show line carries the source and the counts.
 export const verbatimLine =
-  'Never rewrite anything from Mera News: do not shorten, reword or merge a headline, write one of your own, or add a detail, figure or background that is not in the result. Keep the results in the order Mera News gives them and show every one: never re-rank them, sort them by number of reports or leave one out. Only picks are ordered by you, by level. A number of reports or publishers is only ever the one the show line gives.';
+  'Never rewrite anything from Mera News: do not shorten, reword or merge a headline, write one of your own, or add a detail, figure or background that is not in the result. Keep the results in the order Mera News gives them and show every one: never re-rank them, sort them by number of reports or leave one out. Only picks are ordered by you, by level. Never add a count the show line does not give.';
 
 const plural = (n: number, word: string) => `+${n} ${word}${n === 1 ? '' : 's'}`;
-const pct = (c: string) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`;
+// Each UTF-8 byte of the character, as encodeURI writes it.
+const pct = (c: string) => [...Buffer.from(c, 'utf8')].map((b) => `%${b.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
+const hostOf = (link: string) => {
+  try {
+    return new URL(link).hostname;
+  } catch {
+    return '';
+  }
+};
 
 /**
  * A story's show line: `[headline](link) · Publisher +N publications`. `publishers` is how many
  * publishers reported it (0 or absent: not known), `reports` how many reports, used only when the
- * publishers are not known. Brackets and backslashes in the headline are escaped, and parentheses
- * and spaces in the link encoded, so the markdown always parses.
+ * publishers are not known; with neither, no count is shown. The headline and publisher are escaped
+ * so neither can end the link or form one, and whitespace, parentheses, backslashes and angle brackets
+ * in the link are percent-encoded from their UTF-8 bytes, so it stays the same URL and always parses.
+ * An empty headline falls back to `titleEn`, then the publisher, then the link's host.
  */
-export function showOf(headline: string, link: string, publisher: string, counts: { publishers?: number; reports?: number } = {}): string {
-  const text = headline.replace(/\s+/g, ' ').trim().replace(/[\\[\]]/g, (c) => `\\${c}`);
-  const href = link.replace(/[()\s]/g, pct);
-  let name = publisher.replace(/\s+/g, ' ').trim();
-  if (!name) {
-    try {
-      name = new URL(link).hostname;
-    } catch {
-      name = '';
-    }
-  }
+export function showOf(headline: string, link: string, publisher: string, counts: { publishers?: number; reports?: number; titleEn?: string } = {}): string {
+  const host = hostOf(link);
+  const name = oneLine(publisher) || host;
+  const text = (oneLine(headline) || oneLine(counts.titleEn ?? '') || name || link).replace(/[\\[\]`<>]/g, (c) => `\\${c}`);
+  const href = link.replace(/[\s()\\<>]/gu, pct);
   const { publishers = 0, reports = 0 } = counts;
   const extra = publishers > 1 ? ` ${plural(publishers - 1, 'publication')}` : !(publishers > 0) && reports > 1 ? ` ${plural(reports - 1, 'report')}` : '';
-  return `[${text}](${href}) · ${name}${extra}`;
+  return `[${text}](${href}) · ${name.replace(/[\\[\]`<>*_]/g, (c) => `\\${c}`)}${extra}`;
 }
 
 const storyLine =
@@ -114,7 +120,7 @@ export const descriptions = {
   edit_topics:
     'Remove a topic for good, or change its weight. A weight of -1 shows less of it and never hides it. After the person reviewed the topics of some facts, pass reviewed with those fact ids, and remove with the topics they turned down: every other topic of those facts is kept. To add news on something new, add a fact instead.',
   get_suggestions: `Use it when the person asks for their news, their picks or what matters to them. New picks since the last call, each with a reason it matters to this person: show each pick by its show line with its reason, by level, emergency first. Without \`since\` it continues from the last pick this pod delivered. Call it again only while a reply has remaining. ${pagingLine(10)} ${linkLine}`,
-  top_stories: `Use it for any question about news, headlines, top stories, or what is happening in the world or in a country, such as "headlines from India today" (country IND); for the person's own countries, use the places in their facts. The top stories now, from the last 24 hours, in the order Mera News ranks them, which is the order the Mera News app shows. Show them in that order. country is a three-letter code, such as NLD; without it, the world. Each story names its lead publisher, and its show line says how many other publications reported it. The person can ask for every publisher of a story: then call top_stories with story set to that story's id, and pass its nextCursor as after for the rest. summary counts the stories and reports in this reply. ${pagingLine(20)} A headline in another language also has title_en, its English translation. ${linkLine}`,
+  top_stories: `Use it for any question about news, headlines, top stories, or what is happening in the world or in a country, such as "headlines from India today" (country IND); for the person's own countries, use the places in their facts. The top stories now, from the last 24 hours, in the order Mera News ranks them, which is the order the Mera News app shows. Show them in that order. country is a three-letter code, such as NLD; without it, the world. Each story names its lead publisher, and its show line says how many other publications reported it. The person can ask for every publisher of a story: then call top_stories with story set to that story's id and limit set to its reportCount, and make the call each reply's next names for the rest. summary counts the stories and reports in this reply. ${pagingLine(20)} A headline in another language also has title_en, its English translation. ${linkLine}`,
   news_for_profile: `Use it when the person asks for news about their own life, work or interests, and to make picks. Every story that matches the topics of the saved facts, from the last 48 hours, a page at a time, with reports of one event merged into one story. Each page has summary (articles read, the window, publishers, languages, duplicates merged, picked and left out; the first page also has the topics searched with the matches for each, and the facts), toJudge (stories nobody has judged yet, grouped by fact), and picked and leftOut (stories judged before, with their reasons). ${pagingLine(20)} ${judgeLine} Each unjudged story a page returns is recorded as shown, and no later call returns it again for 72 hours, so judge every one you were given. Only the topics are sent to the news server, never the facts. ${linkLine}`,
   rate_stories:
     "Save your verdict on stories from news_for_profile, by their id, up to 500 at once: picked, with a level (emergency, high, medium or low, for how much it affects the person) and one sentence on why it matters to them, never a summary; or left_out, with one short reason. Each story keeps its first verdict, so nothing is judged twice. Your picks become Mera News picks, which get_suggestions, the person's notifications and the website show. Stories left out are listed on the website and in news_for_profile.",
