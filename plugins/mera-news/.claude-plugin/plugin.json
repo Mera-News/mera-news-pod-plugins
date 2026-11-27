@@ -33,7 +33,7 @@
     "api_key": {
       "type": "string",
       "title": "News key",
-      "description": "For Mera News: the key from Mera Labs (message Mera on WhatsApp or write to contact@mera.news). For your own news server: the key you set on it, or nothing if it runs open.",
+      "description": "For Mera News: a key from the form at https://mera.news/api-key (test key, 2,000 requests a day, for your own use). For your own news server: the key you set on it, or nothing if it runs open.",
       "sensitive": true,
       "required": false
     },
