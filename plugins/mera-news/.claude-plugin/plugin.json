@@ -1,8 +1,8 @@
 {
   "name": "mera-news",
   "displayName": "Mera News",
-  "version": "0.4.12",
-  "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests. Needs a key from Mera Labs.",
+  "version": "0.4.13",
+  "description": "News picked for what you follow, from thousands of publishers in many languages. Mera Labs keeps no copy of your interests. Runs on a news server you run yourself, or on Mera News with a key you ask for at https://mera.news/en/api-key.",
   "author": {
     "name": "Mera Labs B.V.",
     "url": "https://mera.news"
@@ -33,7 +33,7 @@
     "api_key": {
       "type": "string",
       "title": "News key",
-      "description": "For Mera News: a key from the form at https://mera.news/api-key (test key, 2,000 requests a day, for your own use). For your own news server: the key you set on it, or nothing if it runs open.",
+      "description": "For Mera News: a key from the form at https://mera.news/en/api-key (test key, 2,000 requests a day, for your own use). For your own news server: the key you set on it, or nothing if it runs open.",
       "sensitive": true,
       "required": false
     },

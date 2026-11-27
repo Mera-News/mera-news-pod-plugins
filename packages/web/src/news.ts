@@ -67,7 +67,7 @@ interface ArticleIn {
   maxClusterSize?: number | null;
 }
 
-const KEY_NEXT = 'Paste the key from Mera Labs into the Mera News settings of your AI app, or into secrets.json if you run your own pod, then restart it.';
+const KEY_NEXT = 'Paste a Mera News key (ask for one at https://mera.news/en/api-key) into the Mera News settings of your AI app, or into secrets.json if you run your own pod, then restart it. Or set News server address to a news server you run.';
 
 async function ask<T>(services: Services, operationName: string, query: string, variables: object): Promise<T> {
   let reply: { data?: T; errors?: { extensions?: { code?: string } }[] };
