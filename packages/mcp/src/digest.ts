@@ -90,6 +90,9 @@ export function serially<T>(file: string, fn: () => T | Promise<T>): Promise<T> 
 /** The plugin's data directory inside a pod home: the pod gives the mcp plugin `<home>/data/plugins/mcp`. */
 export const mcpDataDir = (home: string) => path.join(home, 'data', 'plugins', 'mcp');
 
+/** Said at every session start, profile or not, so news requests reach the Mera News tools. */
+export const NEWS_ROUTING_HINT = 'For news, headlines and top stories in this session, use the Mera News tools, not web search, and show each story by its show line.';
+
 /**
  * The one sentence a new session starts with, from the state files only: no pod, no fact text.
  * Empty when there is nothing to offer.

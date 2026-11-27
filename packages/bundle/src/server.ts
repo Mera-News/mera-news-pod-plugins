@@ -10,7 +10,7 @@ import path from 'node:path';
 import type * as Embed from 'mera-news-pod/embed';
 // The bridge is bundled from source with this file, so the mcp package need not be built first.
 import { runBridge } from '../../mcp/src/bin/bridge';
-import { mcpDataDir, sessionHint } from '../../mcp/src/digest';
+import { mcpDataDir, NEWS_ROUTING_HINT, sessionHint } from '../../mcp/src/digest';
 import { createKeepRunning, logFile, systemDeps } from '../../web/src/keep-running';
 import { ensureConfig } from './config';
 
@@ -121,17 +121,18 @@ async function serve(): Promise<void> {
 }
 
 /**
- * `server.cjs session-hint`, for an app's session start hook: one sentence on standard output, or
- * nothing. It reads two small files the mcp plugin writes and never loads the pod, so it is quick and
- * shows no fact. The home is the pod's own default.
+ * `server.cjs session-hint`, for an app's session start hook: the news routing line, then one
+ * sentence on the profile or the digest when there is one. It reads two small files the mcp plugin
+ * writes and never loads the pod, so it is quick and shows no fact. The home is the pod's own default.
  */
 function printSessionHint(): void {
+  let line = '';
   try {
-    const line = sessionHint(mcpDataDir(process.env.MERA_POD_HOME || path.join(os.homedir(), '.mera-news-pod')));
-    if (line) process.stdout.write(`${line}\n`);
+    line = sessionHint(mcpDataDir(process.env.MERA_POD_HOME || path.join(os.homedir(), '.mera-news-pod')));
   } catch {
     // A hint is never worth failing a session start.
   }
+  process.stdout.write(`${NEWS_ROUTING_HINT}\n${line ? `${line}\n` : ''}`);
 }
 
 // Always run: a desktop app may start this file in an Electron utility process, where require.main is not this module.

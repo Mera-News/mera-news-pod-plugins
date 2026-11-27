@@ -165,7 +165,10 @@ describe('the bundle, run as an AI app runs it', () => {
       assert.equal(run.stderr, '');
       return run.stdout;
     };
-    assert.match(hint(), /^Mera News has no profile for this person yet\..*set_up_profile prompt\.\n$/);
+    // Every session start sends news to the Mera News tools, profile or not.
+    const ROUTING = 'For news, headlines and top stories in this session, use the Mera News tools, not web search, and show each story by its show line.\n';
+    assert.equal(hint().slice(0, ROUTING.length), ROUTING);
+    assert.match(hint().slice(ROUTING.length), /^Mera News has no profile for this person yet\..*set_up_profile prompt\.\n$/);
     assert.ok(!existsSync(path.join(home, 'pod.json')), 'the hint never starts the pod');
 
     const s = startServer(dir, home, { MERA_NEWS_DATA_SERVER_URL: data.origin, MERA_POD_DATA_API_KEY: KEY });
@@ -184,7 +187,7 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.deepEqual(profile.facts[0].topics.map((t: { text: string }) => t.text).sort(), ['Utrecht council', 'Utrecht trams']);
     // Topics the assistant wrote still wait for the person to keep or remove them.
     assert.deepEqual(profile.setup, { complete: false, findingTopics: [], toReview: ['Lives in Utrecht'], noTopics: [] });
-    assert.match(hint(), /^Mera News setup is not finished: .*get_profile\.\n$/);
+    assert.match(hint(), /^For news, headlines and top stories in this session, use the Mera News tools.*\nMera News setup is not finished: .*get_profile\.\n$/);
     assert.doesNotMatch(hint(), /Utrecht/);
     const council = profile.facts[0].topics.find((t: { text: string }) => t.text === 'Utrecht council');
     await call('edit_topics', { remove: [council.id], reviewed: [profile.facts[0].id] });
@@ -209,9 +212,9 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.equal((await call('rate_stories', { stories: [{ id: 'a1', verdict: 'left_out', reason: 'Changed my mind.' }] })).already[0].verdict, 'picked');
     assert.equal(await s.close(), 0);
 
-    assert.equal(hint(), '', 'a profile and no digest due');
+    assert.equal(hint(), ROUTING, 'a profile and no digest due: the news routing line only');
     writeFileSync(path.join(home, 'data', 'plugins', 'mcp', 'digest.json'), JSON.stringify({ times: ['00:00'], lastAt: new Date(Date.now() - 2 * 86400_000).toISOString() }));
-    assert.match(hint(), /^A Mera News digest is due\..*daily_digest prompt\.\n$/);
+    assert.match(hint(), /^For news, headlines and top stories .*\nA Mera News digest is due\..*daily_digest prompt\.\n$/);
     assert.doesNotMatch(hint(), /Utrecht/);
   });
 

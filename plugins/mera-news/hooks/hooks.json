@@ -1,5 +1,5 @@
 {
-  "description": "At the start of a session, says in one sentence whether Mera News has a profile to set up or a digest due. Reads two small state files; never starts the pod and never prints a fact.",
+  "description": "At the start of a session, says to use the Mera News tools for news, and in one sentence whether Mera News has a profile to set up or a digest due. Reads two small state files; never starts the pod and never prints a fact.",
   "hooks": {
     "SessionStart": [
       {
