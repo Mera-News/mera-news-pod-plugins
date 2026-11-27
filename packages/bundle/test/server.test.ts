@@ -204,12 +204,13 @@ describe('the bundle, run as an AI app runs it', () => {
     assert.ok(!JSON.stringify(data.requests.map((r) => r.body)).includes('Lives in Utrecht'), 'a fact reached the news server');
     // The assistant's pick becomes one of the pod's own: get_suggestions gives it, and it is never judged again.
     const rated = await call('rate_stories', { stories: [{ id: 'a1', verdict: 'picked', level: 'high', reason: 'A tram line near your home was approved.' }] });
-    assert.deepEqual(rated.saved, [{ id: 'a1', verdict: 'picked' }], JSON.stringify(rated));
+    assert.deepEqual([rated.saved, rated.already], [1, 0], JSON.stringify(rated));
     const picks = await call('get_suggestions');
     assert.deepEqual(picks.picks.map((p: { title: string; level: string; facts: string[] }) => [p.title, p.level, p.facts]), [['Tram line approved', 'high', ['Lives in Utrecht']]]);
     const after = await call('news_for_profile');
     assert.deepEqual([after.toJudge, after.picked.map((p: { id: string; reason: string }) => [p.id, p.reason])], [[], [['a1', 'A tram line near your home was approved.']]]);
-    assert.equal((await call('rate_stories', { stories: [{ id: 'a1', verdict: 'left_out', reason: 'Changed my mind.' }] })).already[0].verdict, 'picked');
+    const again = await call('rate_stories', { stories: [{ id: 'a1', verdict: 'left_out', reason: 'Changed my mind.' }] });
+    assert.deepEqual([again.saved, again.already], [0, 1], JSON.stringify(again));
     assert.equal(await s.close(), 0);
 
     assert.equal(hint(), ROUTING, 'a profile and no digest due: the news routing line only');
